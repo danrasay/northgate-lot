@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>S Northgate — Pole Driveway Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --forest:#1F3D2B; --moss:#4A6B52; --sand:#EFE9DD; --sandlt:#F7F4EC;
+    --copper:#B0713A; --ink:#2B2B28; --gray:#6B6B64; --rule:#C9C2B2;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--sand);
+    font-family:'Space Grotesk',system-ui,sans-serif;color:var(--ink)}
+  #scene{position:fixed;inset:0}
+  canvas{display:block}
+
+  header{position:fixed;top:0;left:0;right:0;z-index:10;
+    background:var(--forest);border-bottom:3px solid var(--copper);
+    padding:10px 14px 9px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  header h1{font-size:15px;font-weight:700;color:#fff}
+  header .tag{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#F0C89A;
+    letter-spacing:.08em;text-transform:uppercase}
+
+  #panel{position:fixed;left:0;right:0;bottom:0;z-index:10;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    background:linear-gradient(to top, rgba(239,233,221,.97) 70%, rgba(239,233,221,0))}
+  #tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:600px;margin:0 auto 8px}
+  .tab{appearance:none;border:1.5px solid var(--moss);background:var(--sandlt);
+    color:var(--forest);border-radius:8px;padding:6px 2px 5px;cursor:pointer;
+    font-family:'Space Grotesk',sans-serif;line-height:1.15;transition:background .15s,color .15s}
+  .tab b{display:block;font-size:14px;font-weight:700}
+  .tab span{display:block;font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--gray)}
+  .tab.active{background:var(--copper);border-color:var(--copper);color:#fff}
+  .tab.active span{color:#F7E3CB}
+  .tab:focus-visible{outline:2.5px solid var(--copper);outline-offset:2px}
+
+  #card{max-width:600px;margin:0 auto;background:#fff;border:1px solid var(--rule);
+    border-left:4px solid var(--copper);border-radius:8px;padding:9px 11px;
+    box-shadow:0 4px 16px rgba(31,61,43,.10)}
+  #card h2{font-size:13px;color:var(--forest);margin-bottom:2px}
+  #card p{font-size:11.5px;line-height:1.4}
+  #metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:7px 0 5px}
+  .met{background:var(--sand);border:1px solid var(--rule);border-radius:6px;padding:4px 6px;text-align:center}
+  .met b{display:block;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--forest)}
+  .met span{display:block;font-family:'IBM Plex Mono',monospace;font-size:7.5px;
+    letter-spacing:.03em;color:var(--gray);text-transform:uppercase}
+  #chips{display:flex;flex-wrap:wrap;gap:4px}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:9px;background:var(--sandlt);
+    border:1px solid var(--rule);border-radius:999px;padding:2.5px 7px;color:var(--forest)}
+  #foot{max-width:600px;margin:6px auto 0;font-family:'IBM Plex Mono',monospace;
+    font-size:8.3px;line-height:1.45;color:var(--gray);text-align:center}
+
+  #hint{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:9;
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--forest);
+    background:rgba(247,244,236,.92);border:1px solid var(--rule);border-radius:999px;
+    padding:5px 12px;transition:opacity .8s;pointer-events:none;white-space:nowrap}
+  #legend{position:fixed;top:56px;right:10px;z-index:9;font-family:'IBM Plex Mono',monospace;
+    font-size:8.5px;line-height:1.5;color:var(--forest);
+    background:rgba(247,244,236,.92);border:1px solid var(--rule);border-radius:8px;
+    padding:6px 9px;max-width:158px}
+  #legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;
+    vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
+  @media (max-width:430px){ #legend{display:none} }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+
+<header>
+  <h1>S Northgate — Pole Driveway Options</h1>
+  <span class="tag">Grades computed live · terrain approx.</span>
+</header>
+
+<div id="hint">drag to orbit · pinch or scroll to zoom</div>
+<div id="legend">
+  <span class="sw" style="background:#D8D4CA"></span>drive surface<br>
+  <span class="sw" style="background:#B3AC9C"></span>retaining wall<br>
+  <span class="sw" style="background:#6E7F5E"></span>planter / swale<br>
+  <span class="sw" style="background:#555049"></span>trench drain<br>
+  street ~344 ft at the apron
+</div>
+
+<div id="panel">
+  <div id="tabs" role="tablist" aria-label="Driveway options">
+    <button class="tab" id="tab-A" role="tab"><b>1</b><span>follow grade</span></button>
+    <button class="tab" id="tab-B" role="tab"><b>2</b><span>cut &amp; bench</span></button>
+    <button class="tab" id="tab-C" role="tab"><b>3</b><span>stretch</span></button>
+    <button class="tab" id="tab-D" role="tab"><b>4</b><span>full treatment</span></button>
+  </div>
+  <div id="card">
+    <h2 id="card-title"></h2>
+    <p id="card-body"></p>
+    <div id="metrics">
+      <div class="met"><b id="m-max">—</b><span>max sustained</span></div>
+      <div class="met"><b id="m-avg">—</b><span>average grade</span></div>
+      <div class="met"><b id="m-len">—</b><span>drive length</span></div>
+    </div>
+    <div id="chips"></div>
+  </div>
+  <div id="foot">Grades are computed from the drawn geometry over the current approximate terrain —
+  they will shift with the lidar rebuild. Driveway only; utility trenching runs alongside and is budgeted
+  separately. Schematic, not engineering.</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+var C = {
+  copper:0xB0713A, sky:0xE9EEE4, conc:0xD8D4CA, conc2:0xCFCABE,
+  wallRet:0xB3AC9C, planter:0x6E7F5E, drain:0x555049, pad:0xCEC8B8,
+  trunk:0x6B5138, fir1:0x3F5A43, fir2:0x4C6B4E, exist:0xCFC9B8, roof:0x6E7268
+};
+
+/* ---------- terrain: identical function to the massing model ---------- */
+var CTRL = [[-60,-2],[0,0],[40,6.5],[95,14],[150,18],[185,26],[215,33],[245,36],[320,38.5]];
+function baseElev(z){
+  if (z <= CTRL[0][0]) return CTRL[0][1];
+  for (var i=0;i<CTRL.length-1;i++){
+    var a=CTRL[i], b=CTRL[i+1];
+    if (z <= b[0]){ var t=(z-a[0])/(b[0]-a[0]); t=t*t*(3-2*t); return a[1]+(b[1]-a[1])*t; }
+  }
+  return CTRL[CTRL.length-1][1];
+}
+function gauss(x,z,cx,cz,s){ var dx=x-cx,dz=z-cz; return Math.exp(-(dx*dx+dz*dz)/(2*s*s)); }
+function elevAbs(x,z){
+  var e = 344 + baseElev(z);
+  var f = Math.max(0, Math.min(1, z/240));
+  e += 2.1*Math.sin((x+40)/48)*f;
+  e += 2.5*Math.max(-1,Math.min(1,x/130))*(0.35+0.65*f);
+  e += 2.6*gauss(x,z, 48,158, 52);
+  e -= 2.0*gauss(x,z,-58,192, 55);
+  e -= 7.0*gauss(x,z,-175,-25, 75);
+  return e;
+}
+function elev(x,z){ return elevAbs(x,z) - 344; }
+
+var POLE = {x0:-67, x1:-43, z0:0, z1:95};
+var EXT = {x0:-150, x1:70, z0:-42, z1:176};
+
+/* ---------- scaffolding ---------- */
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(C.sky);
+scene.fog = new THREE.Fog(C.sky, 520, 1000);
+var camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 3000);
+var renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.getElementById('scene').appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xF4F6EC, 0x5E6B58, .78));
+var sun = new THREE.DirectionalLight(0xFFF6E4, .82);
+sun.position.set(-170, 250, -110);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-190; sun.shadow.camera.right=190;
+sun.shadow.camera.top=190; sun.shadow.camera.bottom=-190;
+sun.shadow.camera.far=900; sun.shadow.bias=-0.0004;
+scene.add(sun);
+
+/* ---------- contoured ground ---------- */
+function contourTexture(){
+  var W=1024,H=1024, cv=document.createElement('canvas');
+  cv.width=W; cv.height=H;
+  var g=cv.getContext('2d'), img=g.createImageData(W,H), d=img.data;
+  function ramp(t){
+    var a=[168,186,150], b=[104,132,104], c2=[86,112,92], r,gr,bl;
+    if(t<0.5){ var u=t/0.5; r=a[0]+(b[0]-a[0])*u; gr=a[1]+(b[1]-a[1])*u; bl=a[2]+(b[2]-a[2])*u; }
+    else { var v=(t-0.5)/0.5; r=b[0]+(c2[0]-b[0])*v; gr=b[1]+(c2[1]-b[1])*v; bl=b[2]+(c2[2]-b[2])*v; }
+    return [r,gr,bl];
+  }
+  for(var j=0;j<H;j++){
+    var z = EXT.z0 + (1-j/(H-1))*(EXT.z1-EXT.z0);
+    for(var i=0;i<W;i++){
+      var x = EXT.x0 + (i/(W-1))*(EXT.x1-EXT.x0);
+      var e = elevAbs(x,z), col;
+      if (z < -8){ col=[142,138,128]; }
+      else {
+        col = ramp(Math.max(0,Math.min(1,(e-338)/40)));
+        var m2=Math.abs(((e/2)%1+1)%1-0.5), m10=Math.abs(((e/10)%1+1)%1-0.5);
+        if (m10>0.5-0.045){ col=[176,113,58]; }
+        else if (m2>0.5-0.055){ col=[col[0]*0.72,col[1]*0.72,col[2]*0.72]; }
+      }
+      var k=(j*W+i)*4; d[k]=col[0]; d[k+1]=col[1]; d[k+2]=col[2]; d[k+3]=255;
+    }
+  }
+  g.putImageData(img,0,0);
+  var tx=new THREE.CanvasTexture(cv);
+  tx.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tx;
+}
+(function(){
+  var w=EXT.x1-EXT.x0, dpt=EXT.z1-EXT.z0, seg=150;
+  var geo=new THREE.PlaneGeometry(w,dpt,seg,seg);
+  geo.rotateX(-Math.PI/2);
+  var p=geo.attributes.position;
+  for(var i=0;i<p.count;i++){
+    var x=p.getX(i)+(EXT.x0+EXT.x1)/2, z=p.getZ(i)+(EXT.z0+EXT.z1)/2;
+    p.setY(i, elev(x,z));
+  }
+  geo.computeVertexNormals();
+  var m=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({map:contourTexture()}));
+  m.position.set((EXT.x0+EXT.x1)/2,0,(EXT.z0+EXT.z1)/2);
+  m.receiveShadow=true;
+  scene.add(m);
+})();
+
+/* ---------- helpers ---------- */
+function lineFrom(pts,color,dashed){
+  var g=new THREE.BufferGeometry().setFromPoints(pts);
+  var mat = dashed ? new THREE.LineDashedMaterial({color:color,dashSize:5,gapSize:4})
+                   : new THREE.LineBasicMaterial({color:color});
+  var l=new THREE.Line(g,mat); if(dashed) l.computeLineDistances(); return l;
+}
+function drapedLoop(xz,color,dashed,lift){
+  var pts=[];
+  for(var i=0;i<xz.length;i++){
+    var a=xz[i], b=xz[(i+1)%xz.length];
+    var segs=Math.max(2,Math.round(Math.hypot(b[0]-a[0],b[1]-a[1])/6));
+    for(var s=0;s<segs;s++){
+      var t=s/segs, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
+      pts.push(new THREE.Vector3(x, elev(x,z)+(lift||0.7), z));
+    }
+  }
+  pts.push(pts[0].clone());
+  return lineFrom(pts,color,dashed);
+}
+function makeLabel(text,big){
+  var pad=14, fs=big?46:36, cv=document.createElement('canvas'), g=cv.getContext('2d');
+  g.font='600 '+fs+'px "IBM Plex Mono", monospace';
+  var w=Math.ceil(g.measureText(text).width)+pad*2, h=fs+pad*1.6;
+  cv.width=w; cv.height=h; g=cv.getContext('2d');
+  g.fillStyle='rgba(247,244,236,0.94)'; g.strokeStyle='#B0713A'; g.lineWidth=4;
+  if(g.roundRect){ g.beginPath(); g.roundRect(2,2,w-4,h-4,14); g.fill(); g.stroke(); }
+  else { g.fillRect(2,2,w-4,h-4); g.strokeRect(2,2,w-4,h-4); }
+  g.font='600 '+fs+'px "IBM Plex Mono", monospace';
+  g.fillStyle='#1F3D2B'; g.textBaseline='middle'; g.textAlign='center';
+  g.fillText(text,w/2,h/2+2);
+  var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),depthTest:false}));
+  var k=(big?0.42:0.34)*0.28;
+  sp.scale.set(w*k,h*k,1); sp.renderOrder=5;
+  return sp;
+}
+function fir(x,z,h){
+  var g=new THREE.Group(), e=elev(x,z);
+  var tr=new THREE.Mesh(new THREE.CylinderGeometry(0.9,1.3,h*0.28,6),
+      new THREE.MeshLambertMaterial({color:C.trunk}));
+  tr.position.y=h*0.14; g.add(tr);
+  var tiers=[[h*0.52,h*0.30,C.fir1],[h*0.40,h*0.55,C.fir2],[h*0.28,h*0.78,C.fir1]];
+  for(var i=0;i<3;i++){
+    var t=tiers[i];
+    var c=new THREE.Mesh(new THREE.ConeGeometry(t[0]*0.42,t[0],7),
+        new THREE.MeshLambertMaterial({color:t[2]}));
+    c.position.y=t[1]; c.castShadow=true; g.add(c);
+  }
+  g.position.set(x,e,z); return g;
+}
+
+/* ribbon surface from a centerline [x,z,y] */
+function ribbon(pts,halfW,color,lift){
+  var verts=[], idx=[], n=pts.length;
+  for(var i=0;i<n;i++){
+    var a=pts[Math.max(i-1,0)], b=pts[Math.min(i+1,n-1)], p=pts[i];
+    var dx=b[0]-a[0], dz=b[1]-a[1], L=Math.hypot(dx,dz)||1;
+    var nx=-dz/L, nz=dx/L;
+    verts.push(p[0]-nx*halfW, p[2]+lift, p[1]-nz*halfW,
+               p[0]+nx*halfW, p[2]+lift, p[1]+nz*halfW);
+  }
+  for(var i2=0;i2<n-1;i2++){ var a2=i2*2; idx.push(a2,a2+1,a2+2, a2+1,a2+3,a2+2); }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide}));
+  m.receiveShadow=true; m.castShadow=true;
+  return m;
+}
+/* laterally offset a centerline (for two-track ribbons) */
+function offsetPath(pts,off){
+  var out=[], n=pts.length;
+  for(var i=0;i<n;i++){
+    var a=pts[Math.max(i-1,0)], b=pts[Math.min(i+1,n-1)], p=pts[i];
+    var dx=b[0]-a[0], dz=b[1]-a[1], L=Math.hypot(dx,dz)||1;
+    out.push([p[0]-dz/L*off, p[1]+dx/L*off, p[2]]);
+  }
+  return out;
+}
+/* retaining wall along one side where terrain rises above the drive */
+function wallAlong(pts,halfW,side,group){
+  var step=Math.max(1,Math.round(pts.length/26));
+  for(var i=0;i<pts.length-step;i+=step){
+    var p=pts[i], q=pts[i+step];
+    var dx=q[0]-p[0], dz=q[1]-p[1], L=Math.hypot(dx,dz)||1;
+    var nx=-dz/L*side, nz=dx/L*side;
+    var mx=(p[0]+q[0])/2 + nx*halfW, mz=(p[1]+q[1])/2 + nz*halfW;
+    var my=(p[2]+q[2])/2;
+    var h=elev(mx,mz)-my;
+    if(h<1.1) continue;
+    h=Math.min(h+0.9,13);
+    var w=new THREE.Mesh(new THREE.BoxGeometry(L*1.06,h,1.6),
+        new THREE.MeshLambertMaterial({color:C.wallRet}));
+    w.position.set(mx,my+h/2-0.5,mz);
+    w.rotation.y=Math.atan2(dx,dz);
+    w.castShadow=true; w.receiveShadow=true;
+    group.add(w);
+  }
+}
+/* build a path: xz polyline + elevation profile over arc length */
+function buildPath(xz,profile){
+  var s=[0];
+  for(var i=1;i<xz.length;i++){
+    s.push(s[i-1]+Math.hypot(xz[i][0]-xz[i-1][0], xz[i][1]-xz[i-1][1]));
+  }
+  var S=s[s.length-1];
+  return xz.map(function(p,i){ return [p[0],p[1],profile(s[i],S,p[0],p[1])]; });
+}
+/* grade stats — max over any 20 ft sliding window */
+function stats(pts){
+  var s=[0];
+  for(var i=1;i<pts.length;i++){
+    s.push(s[i-1]+Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+  }
+  var S=s[s.length-1], maxG=0;
+  for(var i2=0;i2<pts.length;i2++){
+    for(var j=i2+1;j<pts.length;j++){
+      if(s[j]-s[i2]>=20){
+        var g=Math.abs(pts[j][2]-pts[i2][2])/(s[j]-s[i2]);
+        if(g>maxG) maxG=g;
+        break;
+      }
+    }
+  }
+  return {max:maxG, avg:Math.abs(pts[pts.length-1][2]-pts[0][2])/S, len:S};
+}
+
+/* ---------- shared context ---------- */
+scene.add(drapedLoop([[POLE.x0,POLE.z0],[POLE.x1,POLE.z0],[POLE.x1,POLE.z1],
+                      [55,POLE.z1],[55,168],[-92,168],[-92,POLE.z1],[POLE.x0,POLE.z1]],
+                     C.copper,false,1.0));
+(function(){
+  var l=makeLabel('S NORTHGATE AVE',true); l.position.set(-58,4.5,-22); scene.add(l);
+  var f=makeLabel('FLAG BODY'); f.position.set(6,elev(6,150)+11,150);
+  f.material.opacity=.85; scene.add(f);
+})();
+var FIRS=[[-96,60,24],[-100,120,26],[-88,158,25],[-30,164,27],[24,162,26],[52,124,23],
+          [-34,-26,20],[16,-24,22],[-84,16,21],[-24,104,18]];
+for(var i=0;i<FIRS.length;i++) scene.add(fir(FIRS[i][0],FIRS[i][1],FIRS[i][2]));
+
+/* ---------- geometry constants ---------- */
+var Y_ST = elev(-55,-12);                       /* street/apron elevation */
+var CLX  = -55;                                 /* pole centerline */
+function straightXZ(zEnd){
+  var a=[]; for(var z=-12; z<=zEnd; z+=2) a.push([CLX,z]); return a;
+}
+/* stretch alignment: gentle up the pole, then curve east into the body */
+function stretchXZ(){
+  var a=[], z;
+  for(z=-12; z<=86; z+=2) a.push([CLX,z]);
+  var P0=[CLX,86], P1=[CLX,124], P2=[-6,140];
+  for(var t=0.04;t<=1.0001;t+=0.04){
+    var u=1-t;
+    a.push([u*u*P0[0]+2*u*t*P1[0]+t*t*P2[0], u*u*P0[1]+2*u*t*P1[1]+t*t*P2[1]]);
+  }
+  return a;
+}
+
+var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new THREE.Group()};
+Object.keys(groups).forEach(function(k){ scene.add(groups[k]); });
+var STAT={};
+
+/* ===== Option 1 — follow grade ===== */
+(function(g){
+  var xz=straightXZ(112);
+  var pts=buildPath(xz,function(s,S,x,z){ return elev(x,z)+0.35; });
+  STAT.A=stats(pts);
+  g.add(ribbon(pts,6.5,C.conc,0.12));
+  var e=elev(CLX,112);
+  var slab=new THREE.Mesh(new THREE.BoxGeometry(30,1.2,26),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  slab.position.set(-46,e+0.5,122); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD AT NATURAL GRADE'); l.position.set(-46,e+13,122); g.add(l);
+  var p=makeLabel('PINCH — STEEPEST 30 FT'); p.position.set(CLX,elev(CLX,46)+11,46); g.add(p);
+})(groups.A);
+
+/* ===== Option 2 — cut & bench ===== */
+(function(g){
+  var xz=straightXZ(112);
+  var yTop=elev(CLX,106)-6.0;
+  var pts=buildPath(xz,(function(){
+    var S=124, L=14, yA=Y_ST+0.015*L;
+    return function(s,SS){
+      if(s<=L) return Y_ST+0.015*s;
+      if(s>=SS-L) return yTop;
+      return yA+(yTop-yA)*(s-L)/(SS-2*L);
+    };
+  })());
+  STAT.B=stats(pts);
+  g.add(ribbon(pts,6.5,C.conc,0.12));
+  wallAlong(pts,7.4,1,g);
+  wallAlong(pts,7.4,-1,g);
+  var slab=new THREE.Mesh(new THREE.BoxGeometry(32,1.2,26),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  slab.position.set(-48,yTop+0.4,120); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD CUT ~6 FT LOWER'); l.position.set(-48,yTop+13,120); g.add(l);
+  var w=makeLabel('RETAINING — BOTH SIDES'); w.position.set(-40,elev(-40,64)+9,64); g.add(w);
+})(groups.B);
+
+/* ===== Option 3 — stretch into the body ===== */
+(function(g){
+  var xz=stretchXZ();
+  var yTop=elev(-6,140)-5.0;
+  var pts=buildPath(xz,function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; });
+  STAT.C=stats(pts);
+  g.add(ribbon(pts,6.5,C.conc,0.12));
+  wallAlong(pts,7.4,1,g);
+  var slab=new THREE.Mesh(new THREE.BoxGeometry(34,1.2,28),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  slab.position.set(-4,yTop+0.4,146); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD — CURVED APPROACH'); l.position.set(-4,yTop+14,146); g.add(l);
+  var s2=makeLabel('CLIMB CONTINUES IN THE BODY');
+  s2.position.set(-40,elev(-40,116)+10,116); g.add(s2);
+})(groups.C);
+
+/* ===== Option 4 — full treatment ===== */
+(function(g){
+  var xz=stretchXZ();
+  var yTop=elev(-6,140)-5.0;
+  var pts=buildPath(xz,(function(){
+    var L=16;
+    return function(s,S){
+      var yA=Y_ST+0.015*L;
+      if(s<=L) return Y_ST+0.015*s;
+      if(s>=S-L) return yTop;
+      return yA+(yTop-yA)*(s-L)/(S-2*L);
+    };
+  })());
+  STAT.D=stats(pts);
+  /* two-track ribbons */
+  g.add(ribbon(offsetPath(pts,-3.1),2.3,C.conc,0.12));
+  g.add(ribbon(offsetPath(pts, 3.1),2.3,C.conc,0.12));
+  wallAlong(pts,7.4,1,g);
+  /* pullout bulge */
+  (function(){
+    var i=Math.round(pts.length*0.46), p=pts[i];
+    var b=new THREE.Mesh(new THREE.BoxGeometry(9,0.6,20),
+        new THREE.MeshLambertMaterial({color:C.conc2}));
+    b.position.set(p[0]-9.5,p[2]+0.1,p[1]); b.receiveShadow=true; g.add(b);
+    var l=makeLabel('PULLOUT'); l.position.set(p[0]-9.5,p[2]+8,p[1]); g.add(l);
+  })();
+  /* flow-through planter along the downhill edge */
+  (function(){
+    var seg=pts.slice(6,30).map(function(p){ return [p[0]-9.2,p[1],p[2]-0.5]; });
+    g.add(ribbon(seg,2.6,C.planter,0.1));
+    var l=makeLabel('FLOW-THROUGH PLANTER');
+    l.position.set(seg[10][0],seg[10][2]+8,seg[10][1]); g.add(l);
+  })();
+  /* heated strip zone marker on the steepest stretch */
+  (function(){
+    var i=Math.round(pts.length*0.30), p=pts[i];
+    var l=makeLabel('HEATED STRIP ZONE'); l.position.set(p[0],p[2]+11,p[1]); g.add(l);
+  })();
+  var slab=new THREE.Mesh(new THREE.BoxGeometry(34,1.2,28),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  slab.position.set(-4,yTop+0.4,146); slab.receiveShadow=true; g.add(slab);
+  var l2=makeLabel('LEVEL TOP LANDING'); l2.position.set(-4,yTop+14,146); g.add(l2);
+})(groups.D);
+
+/* ---------- always-on street details ---------- */
+(function(){
+  var y=Y_ST;
+  var d=new THREE.Mesh(new THREE.BoxGeometry(15,0.7,2.2),
+      new THREE.MeshLambertMaterial({color:C.drain}));
+  d.position.set(CLX,y+0.45,-6); scene.add(d);
+  var l=makeLabel('TRENCH DRAIN AT APRON'); l.position.set(CLX,y+7,-6); scene.add(l);
+  var m=new THREE.Mesh(new THREE.BoxGeometry(1.4,5,1.4),
+      new THREE.MeshLambertMaterial({color:C.wallRet}));
+  m.position.set(-70,y+2.5,-4); m.castShadow=true; scene.add(m);
+  var lm=makeLabel('ADDRESS MARKER'); lm.position.set(-70,y+9,-4);
+  lm.material.opacity=.9; scene.add(lm);
+  for(var z=8; z<=100; z+=23){
+    var b=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.6,3.2,7),
+        new THREE.MeshLambertMaterial({color:0x5C6157}));
+    b.position.set(-68.5, elev(-68.5,z)+1.6, z); b.castShadow=true; scene.add(b);
+  }
+})();
+
+/* ---------- captions ---------- */
+var INFO={
+ A:{t:'1 — Follow the natural grade',
+    b:'Pave what is already there: one lane straight up the pole to a pad at natural grade. Cheapest by a wide margin — but on this terrain the pinch mid-run computes past Portland\u2019s roughly 20% driveway ceiling, so as drawn it likely is not permittable. Read it as the baseline the other three are buying their way out of.',
+    c:['$18–28K','broom concrete','no retaining','likely over the grade cap']},
+ B:{t:'2 — Cut and bench (lower the rise)',
+    b:'Walls on both sides let the drive hold one steady grade instead of a pinch, and the pad is cut about six feet into the hill so the drive climbs less. Flat landings top and bottom. You are buying comfort with concrete and truckloads of export.',
+    c:['$38–65K','walls + export','steady grade','flat landings']},
+ C:{t:'3 — Stretch the run into the body',
+    b:'Keep the pole gentle and let the climb continue on a curve inside the flag body, where there is width to work with. Longer path, softer grade, far less wall than Option 2 — and the arrival sequence is genuinely nicer.',
+    c:['$32–52K','more paving','one uphill wall','best arrival']},
+ D:{t:'4 — Full treatment',
+    b:'Option 3\u2019s alignment plus level landings at both ends, a two-track ribbon that halves the impervious area, a flow-through planter taking the runoff, a midpoint pullout, and a heated strip. Note the honest tradeoff in the numbers: flattening both ends forces the middle stretch steeper than Option 3 — which is exactly where the heated strip goes.',
+    c:['$55–90K','two-track / permeable','planter + pullout','heated strip']}
+};
+var current='A';
+function fmt(k){
+  var s=STAT[k];
+  document.getElementById('m-max').textContent=(s.max*100).toFixed(1)+'%';
+  document.getElementById('m-avg').textContent=(s.avg*100).toFixed(1)+'%';
+  document.getElementById('m-len').textContent=Math.round(s.len)+' ft';
+}
+function setOption(k){
+  current=k;
+  Object.keys(groups).forEach(function(g){ groups[g].visible=(g===k); });
+  document.querySelectorAll('.tab').forEach(function(b){
+    b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
+  var btn=document.getElementById('tab-'+k);
+  btn.classList.add('active'); btn.setAttribute('aria-selected','true');
+  document.getElementById('card-title').textContent=INFO[k].t;
+  document.getElementById('card-body').textContent=INFO[k].b;
+  var ch=document.getElementById('chips'); ch.innerHTML='';
+  INFO[k].c.forEach(function(x){
+    var s=document.createElement('span'); s.className='chip'; s.textContent=x; ch.appendChild(s); });
+  fmt(k);
+}
+['A','B','C','D'].forEach(function(k){
+  document.getElementById('tab-'+k).addEventListener('click',function(){ setOption(k); });
+});
+setOption('A');
+
+/* ---------- orbit ---------- */
+var target=new THREE.Vector3(-42, 6, 68);
+var sph={theta:-2.42, phi:1.03, r:225};
+var autoSpin=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+function applyCam(){
+  sph.phi=Math.max(0.20,Math.min(1.40,sph.phi));
+  sph.r=Math.max(90,Math.min(560,sph.r));
+  camera.position.set(
+    target.x+sph.r*Math.sin(sph.phi)*Math.sin(sph.theta),
+    target.y+sph.r*Math.cos(sph.phi),
+    target.z+sph.r*Math.sin(sph.phi)*Math.cos(sph.theta));
+  camera.lookAt(target);
+}
+applyCam();
+var dom=renderer.domElement, dragging=false, px=0, py=0, pinch=0;
+function stopAuto(){
+  autoSpin=false;
+  var h=document.getElementById('hint');
+  if(h){ h.style.opacity=0; setTimeout(function(){ h.remove(); },900); }
+}
+dom.addEventListener('pointerdown',function(e){ dragging=true; px=e.clientX; py=e.clientY; stopAuto(); });
+addEventListener('pointerup',function(){ dragging=false; });
+addEventListener('pointermove',function(e){
+  if(!dragging) return;
+  sph.theta-=(e.clientX-px)*0.0052; sph.phi-=(e.clientY-py)*0.0042;
+  px=e.clientX; py=e.clientY; applyCam();
+});
+dom.addEventListener('wheel',function(e){
+  e.preventDefault(); stopAuto(); sph.r*=(1+Math.sign(e.deltaY)*0.09); applyCam();
+},{passive:false});
+dom.addEventListener('touchstart',function(e){
+  if(e.touches.length===2){
+    pinch=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                     e.touches[0].clientY-e.touches[1].clientY);
+  }
+},{passive:true});
+dom.addEventListener('touchmove',function(e){
+  if(e.touches.length===2){
+    e.preventDefault();
+    var d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                     e.touches[0].clientY-e.touches[1].clientY);
+    if(pinch>0){ sph.r*=pinch/d; applyCam(); }
+    pinch=d; stopAuto(); dragging=false;
+  }
+},{passive:false});
+addEventListener('resize',function(){
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+var clock=new THREE.Clock();
+(function tick(){
+  requestAnimationFrame(tick);
+  var dt=clock.getDelta();
+  if(autoSpin){ sph.theta+=dt*0.055; applyCam(); }
+  renderer.render(scene,camera);
+})();
+
+})();
+</script>
+</body>
+</html>

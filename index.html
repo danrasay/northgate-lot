@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S Northgate Ave — Lot Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --forest:#1F3D2B; --moss:#4A6B52; --sand:#EFE9DD; --sandlt:#F7F4EC;
+    --copper:#B0713A; --ink:#2B2B28; --gray:#6B6B64; --rule:#C9C2B2;
+    --maxw:720px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--sand);color:var(--ink);
+    font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;
+    line-height:1.5;padding-bottom:56px}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 18px}
+  a{color:inherit}
+
+  /* ---- hero: the site's own contours ---- */
+  .hero{background:var(--forest);border-bottom:4px solid var(--copper);
+    position:relative;overflow:hidden}
+  #contour{display:block;width:100%;height:230px}
+  .hero .over{position:absolute;inset:0;display:flex;flex-direction:column;
+    justify-content:flex-end;padding:18px;pointer-events:none;
+    background:linear-gradient(to top,rgba(31,61,43,.88) 6%,rgba(31,61,43,.15) 62%,rgba(31,61,43,.5))}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;
+    letter-spacing:.16em;text-transform:uppercase;color:#F0C89A;margin-bottom:6px}
+  .hero h1{font-size:clamp(23px,6vw,34px);font-weight:700;color:#fff;
+    letter-spacing:-.015em;line-height:1.1}
+  .hero p{font-family:'IBM Plex Mono',monospace;font-size:11px;
+    color:#C9D6C6;margin-top:7px}
+
+  /* ---- status strip ---- */
+  .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+    gap:1px;background:var(--rule);border-bottom:1px solid var(--rule)}
+  .status div{background:var(--sandlt);padding:11px 14px}
+  .status dt{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--gray);margin-bottom:3px}
+  .status dd{font-size:13px;font-weight:600;color:var(--forest)}
+
+  section{padding:28px 0 4px}
+  h2{font-size:12px;font-family:'IBM Plex Mono',monospace;font-weight:600;
+    letter-spacing:.13em;text-transform:uppercase;color:var(--moss);
+    padding-bottom:8px;border-bottom:1px solid var(--rule);margin-bottom:16px}
+
+  /* ---- deliverables ---- */
+  .card{display:block;text-decoration:none;background:#fff;
+    border:1px solid var(--rule);border-left:4px solid var(--copper);
+    border-radius:9px;padding:14px 15px;margin-bottom:11px;
+    transition:transform .16s ease,box-shadow .16s ease}
+  .card:hover,.card:focus-visible{transform:translateY(-2px);
+    box-shadow:0 8px 22px rgba(31,61,43,.13)}
+  .card:focus-visible{outline:2.5px solid var(--copper);outline-offset:3px}
+  .card h3{font-size:16px;font-weight:700;color:var(--forest);margin-bottom:3px}
+  .card p{font-size:13px;color:var(--ink);margin-bottom:8px}
+  .kind{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--copper)}
+  .tags{display:flex;flex-wrap:wrap;gap:5px}
+  .tag{font-family:'IBM Plex Mono',monospace;font-size:10px;background:var(--sand);
+    border:1px solid var(--rule);border-radius:999px;padding:2px 8px;color:var(--forest)}
+
+  /* ---- options table ---- */
+  table{width:100%;border-collapse:collapse;font-size:13px;
+    background:#fff;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--rule);
+    vertical-align:top}
+  thead th{background:var(--forest);color:#fff;font-family:'IBM Plex Mono',monospace;
+    font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:600}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:nth-child(odd) td{background:var(--sandlt)}
+  td.k{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--copper);
+    width:34px}
+
+  /* ---- pending ---- */
+  ol.next{list-style:none;counter-reset:n}
+  ol.next li{counter-increment:n;position:relative;padding:0 0 13px 34px;
+    font-size:13.5px}
+  ol.next li::before{content:counter(n);position:absolute;left:0;top:0;
+    width:23px;height:23px;border-radius:50%;background:var(--forest);color:#fff;
+    font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;
+    display:flex;align-items:center;justify-content:center}
+  ol.next b{color:var(--forest)}
+
+  footer{margin-top:26px;padding:16px 0 0;border-top:1px solid var(--rule);
+    font-family:'IBM Plex Mono',monospace;font-size:10.5px;line-height:1.6;
+    color:var(--gray)}
+
+  @media (prefers-reduced-motion:reduce){
+    .card{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <canvas id="contour" aria-label="Contour map of the flag lot, drawn from the study's elevation model"></canvas>
+  <div class="over">
+    <div class="wrap" style="padding:0 18px">
+      <div class="eyebrow">Tax account R547474 · Portland OR 97219</div>
+      <h1>S Northgate Ave lot study</h1>
+      <p>0.58 acres · flag lot · R20 · rises ~40 ft from the street</p>
+    </div>
+  </div>
+</div>
+
+<dl class="status">
+  <div><dt>Jurisdiction</dt><dd>City of Portland</dd></div>
+  <div><dt>Zoning</dt><dd>R20, no overlays</dd></div>
+  <div><dt>Landslide risk</dt><dd>Low (DOGAMI)</dd></div>
+  <div><dt>Title report</dt><dd>Pending</dd></div>
+</dl>
+
+<div class="wrap">
+
+  <section>
+    <h2>Deliverables</h2>
+
+    <a class="card" href="models/massing.html">
+      <div class="kind">Interactive 3D</div>
+      <h3>Site massing model</h3>
+      <p>Four development options on the hillside. Drag to orbit, pinch to zoom, toggle between schemes.</p>
+      <div class="tags"><span class="tag">A–D toggleable</span><span class="tag">contoured terrain</span></div>
+    </a>
+
+    <a class="card" href="models/driveway.html">
+      <div class="kind">Interactive 3D</div>
+      <h3>Pole driveway options</h3>
+      <p>Four alignments up the flag pole, with maximum sustained grade computed live from the drawn geometry.</p>
+      <div class="tags"><span class="tag">live grade readout</span><span class="tag">cut / stretch / accept</span></div>
+    </a>
+
+    <a class="card" href="docs/Development_Options_Report.pdf">
+      <div class="kind">PDF · 9 pages</div>
+      <h3>Development options study</h3>
+      <p>Zoning framework, four options costed in depth, financial assumptions, risk register, and a sequenced plan.</p>
+      <div class="tags"><span class="tag">draft v1</span></div>
+    </a>
+
+    <a class="card" href="docs/Options_One_Pager.pdf">
+      <div class="kind">PDF · 1 page</div>
+      <h3>Options at a glance</h3>
+      <p>Landscape comparison matrix — cost, income, yield, short-term rental status, and watch-outs side by side.</p>
+      <div class="tags"><span class="tag">print-ready</span></div>
+    </a>
+  </section>
+
+  <section>
+    <h2>The four options</h2>
+    <table>
+      <thead><tr><th></th><th>Scheme</th><th>Why you would pick it</th></tr></thead>
+      <tbody>
+        <tr><td class="k">A</td><td>Rental house + detached ADU</td><td>Income and family space at once — recommended baseline</td></tr>
+        <tr><td class="k">B</td><td>Duplex, hold both units</td><td>Strongest cash flow from the land</td></tr>
+        <tr><td class="k">C</td><td>Single rental house</td><td>Simplest build, keeps every option open</td></tr>
+        <tr><td class="k">D</td><td>Consolidate into a compound</td><td>Lifestyle, phased spending, and the only lawful short-term-rental route</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>What happens next</h2>
+    <ol class="next">
+      <li><b>Rebuild the terrain on lidar.</b> Run <code>tools/fetch_dem.py</code> to pull USGS 3DEP elevations, then drive both models from the measured grid instead of the current approximation.</li>
+      <li><b>Re-check the driveway grades.</b> On approximate ground, following natural grade computes past Portland's ~20% ceiling. Real elevations decide whether the cheap option survives.</li>
+      <li><b>Fold in the title report.</b> The seller disclosed an easement beyond utility and drainage but never attached the instrument.</li>
+      <li><b>Confirm legal-lot status.</b> More than one lot of record would improve every option on the table.</li>
+    </ol>
+  </section>
+
+  <footer>
+    Planning-level study for the owners' internal use. Not legal, tax, investment, or
+    engineering advice. Costs are ranges, grades are computed over approximate terrain,
+    and zoning interpretations need confirmation with the City of Portland.
+    Contours above are drawn from the study's own elevation model, not a survey.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var cv = document.getElementById('contour');
+  var ctx = cv.getContext('2d');
+
+  /* same elevation model the 3D studies use */
+  var CTRL=[[-60,-2],[0,0],[40,6.5],[95,14],[150,18],[185,26],[215,33],[245,36],[320,38.5]];
+  function baseElev(z){
+    if(z<=CTRL[0][0]) return CTRL[0][1];
+    for(var i=0;i<CTRL.length-1;i++){
+      var a=CTRL[i], b=CTRL[i+1];
+      if(z<=b[0]){ var t=(z-a[0])/(b[0]-a[0]); t=t*t*(3-2*t); return a[1]+(b[1]-a[1])*t; }
+    }
+    return CTRL[CTRL.length-1][1];
+  }
+  function g2(x,z,cx,cz,s){ var dx=x-cx,dz=z-cz; return Math.exp(-(dx*dx+dz*dz)/(2*s*s)); }
+  function elevAbs(x,z){
+    var e=344+baseElev(z), f=Math.max(0,Math.min(1,z/240));
+    e+=2.1*Math.sin((x+40)/48)*f;
+    e+=2.5*Math.max(-1,Math.min(1,x/130))*(0.35+0.65*f);
+    e+=2.6*g2(x,z,48,158,52);
+    e-=2.0*g2(x,z,-58,192,55);
+    e-=7.0*g2(x,z,-175,-25,75);
+    return e;
+  }
+
+  var VX0=-150, VX1=110, VZ0=-40, VZ1=270;   /* view window in local feet */
+
+  function draw(){
+    var w = cv.clientWidth, h = cv.clientHeight, dpr = Math.min(devicePixelRatio||1, 2);
+    cv.width = w*dpr; cv.height = h*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+
+    /* z maps to screen x (site runs left-to-right), x maps to screen y */
+    function sx(z){ return (z-VZ0)/(VZ1-VZ0)*w; }
+    function sy(x){ return (1-(x-VX0)/(VX1-VX0))*h; }
+
+    /* filled elevation bands */
+    var step = 3;
+    for(var py=0; py<h; py+=step){
+      for(var px=0; px<w; px+=step){
+        var z = VZ0 + px/w*(VZ1-VZ0);
+        var x = VX0 + (1-py/h)*(VX1-VX0);
+        var e = elevAbs(x,z);
+        var t = Math.max(0, Math.min(1, (e-338)/44));
+        var l = 20 + t*16;
+        ctx.fillStyle = 'hsl(140,17%,'+l+'%)';
+        ctx.fillRect(px,py,step,step);
+      }
+    }
+
+    /* contour lines by marching a coarse grid */
+    function contour(interval, color, width){
+      ctx.strokeStyle=color; ctx.lineWidth=width; ctx.beginPath();
+      var N=180, M=150;
+      for(var j=0;j<M;j++){
+        for(var i=0;i<N;i++){
+          var z0=VZ0+(i/N)*(VZ1-VZ0), z1=VZ0+((i+1)/N)*(VZ1-VZ0);
+          var x0=VX0+(j/M)*(VX1-VX0), x1=VX0+((j+1)/M)*(VX1-VX0);
+          var a=elevAbs(x0,z0), b=elevAbs(x0,z1), c=elevAbs(x1,z0);
+          var la=Math.floor(a/interval), lb=Math.floor(b/interval), lc=Math.floor(c/interval);
+          if(la!==lb){ ctx.moveTo(sx((z0+z1)/2), sy(x0)); ctx.lineTo(sx((z0+z1)/2), sy(x1)); }
+          if(la!==lc){ ctx.moveTo(sx(z0), sy((x0+x1)/2)); ctx.lineTo(sx(z1), sy((x0+x1)/2)); }
+        }
+      }
+      ctx.stroke();
+    }
+    contour(2,  'rgba(233,238,228,0.17)', 1);
+    contour(10, 'rgba(176,113,58,0.85)',  1.6);
+
+    /* parcel outline: pole + flag body */
+    var pts=[[-67,0],[-43,0],[-43,95],[85,95],[85,245],[-90,245],[-90,95],[-67,95]];
+    ctx.strokeStyle='rgba(247,244,236,0.95)'; ctx.lineWidth=2; ctx.setLineDash([7,5]);
+    ctx.beginPath();
+    for(var k=0;k<pts.length;k++){
+      var fn = k? 'lineTo':'moveTo';
+      ctx[fn](sx(pts[k][1]), sy(pts[k][0]));
+    }
+    ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  draw();
+  var t;
+  addEventListener('resize', function(){ clearTimeout(t); t=setTimeout(draw,150); });
+})();
+</script>
+</body>
+</html>
