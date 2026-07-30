@@ -174,6 +174,61 @@ function nearCorridor(x,z,halfW){
   }
   return false;
 }
+function corridorDist(x,z){
+  var best=Infinity;
+  for(var i=0;i<CORRIDOR_PTS.length-1;i++){
+    var a=CORRIDOR_PTS[i], b=CORRIDOR_PTS[i+1];
+    var d=distToSegment(x,z,a[0],a[1],b[0],b[1]);
+    if(d<best) best=d;
+  }
+  return best;
+}
+
+/* ---------- drive alignments + elevation profiles for all 4 options ----------
+   Computed up front, before the terrain mesh below, so that mesh can carve a
+   shared channel deep enough that no option's engineered profile ends up
+   below the (otherwise undisturbed) ground and gets rendered as buried. */
+var Y_ST = 0;                                    /* apron elevation — REF is anchored here */
+var BASE_XZ = densify(POLE.slice(1), 2);         /* apron (84.16,-27) through the kink to (64,136) */
+var END = POLE[POLE.length-1];                    /* [64,136] — where the legal easement ends */
+/* "stretch" alignment: continue past the easement into the flatter flag-body interior,
+   on land the owner controls outright (not a wider pole) */
+var STRETCH_XZ = BASE_XZ.concat(bezier(END, [20,148], [-15,170], 24).slice(1));
+var STRETCH_LANDING = STRETCH_XZ[STRETCH_XZ.length-1];
+
+var PROFILE = {
+  A: buildPath(BASE_XZ, function(s,S,x,z){ return elev(x,z)+0.35; }),
+  B: buildPath(BASE_XZ, (function(){
+    var L=14, yTop=elev(END[0],END[1])-6.0;
+    return function(s,SS){
+      if(s<=L) return Y_ST+(0.5/L)*s;
+      if(s>=SS-L) return yTop;
+      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(SS-2*L);
+    };
+  })()),
+  C: buildPath(STRETCH_XZ, (function(){
+    var yTop=elev(STRETCH_LANDING[0],STRETCH_LANDING[1])-5.0;
+    return function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; };
+  })()),
+  D: buildPath(STRETCH_XZ, (function(){
+    var L=16, yTop=elev(STRETCH_LANDING[0],STRETCH_LANDING[1])-5.0;
+    return function(s,S){
+      if(s<=L) return Y_ST+(0.5/L)*s;
+      if(s>=S-L) return yTop;
+      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(S-2*L);
+    };
+  })())
+};
+var ALL_PROFILE_PTS = PROFILE.A.concat(PROFILE.B, PROFILE.C, PROFILE.D);
+/* nearest engineered-surface elevation to (x,z), across all 4 options at once */
+function nearestProfileY(x,z){
+  var best=Infinity, bestD=Infinity;
+  for(var k=0;k<ALL_PROFILE_PTS.length;k++){
+    var p=ALL_PROFILE_PTS[k], d=Math.hypot(x-p[0], z-p[1]);
+    if(d<bestD){ bestD=d; best=p[2]; }
+  }
+  return best;
+}
 
 document.getElementById('legend-elev').textContent = 'street ~' + Math.round(REF) + ' ft at the apron';
 
@@ -239,7 +294,19 @@ function contourTexture(){
     var x=p.getX(i)+(EXT.x0+EXT.x1)/2, z=p.getZ(i)+(EXT.z0+EXT.z1)/2;
     var eA=elevAbs(x,z);
     if(eA<lo) lo=eA; if(eA>hi) hi=eA;
-    p.setY(i, eA-REF);
+    var terrainY = eA-REF;
+    var cd = corridorDist(x,z);
+    if(cd < 32){
+      /* carve the ground down to whichever option's engineered surface sits lowest here,
+         so switching tabs never buries a cut section under undisturbed terrain — feathered
+         out over the last 16 ft so it reads as a graded slope, not a cliff with no wall to explain it */
+      var floorY = nearestProfileY(x,z) - 1.5;
+      if(floorY < terrainY){
+        var w = cd<=16 ? 1 : 1-(cd-16)/16;
+        terrainY += (floorY-terrainY)*w;
+      }
+    }
+    p.setY(i, terrainY);
   }
   RAMP_LO=Math.floor(lo/10)*10; RAMP_HI=Math.ceil(hi/10)*10;
   geo.computeVertexNormals();
@@ -460,21 +527,13 @@ scene.add(ribbonPath(FLAG,2.4,C.copper,0.8,true));
 var FIRS=[[-8,-30,20],[16,-40,22],[100,20,24],[110,60,26],[100,100,25],[35,155,27],[0,175,26],[-25,190,24]];
 for(var i=0;i<FIRS.length;i++) scene.add(fir(FIRS[i][0],FIRS[i][1],FIRS[i][2]));
 
-/* ---------- geometry: the real 15-ft pole easement, apron to flag body ---------- */
-var Y_ST = 0;                                    /* apron elevation — REF is anchored here */
-var BASE_XZ = densify(POLE.slice(1), 2);         /* apron (84.16,-27) through the kink to (64,136) */
-var END = POLE[POLE.length-1];                    /* [64,136] — where the legal easement ends */
-/* "stretch" alignment: continue past the easement into the flatter flag-body interior,
-   on land the owner controls outright (not a wider pole) */
-var STRETCH_XZ = BASE_XZ.concat(bezier(END, [20,148], [-15,170], 24).slice(1));
-
 var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new THREE.Group()};
 Object.keys(groups).forEach(function(k){ scene.add(groups[k]); });
 var STAT={};
 
 /* ===== Option 1 — follow grade ===== */
 (function(g){
-  var pts=buildPath(BASE_XZ,function(s,S,x,z){ return elev(x,z)+0.35; });
+  var pts=PROFILE.A;
   STAT.A=stats(pts);
   g.add(ribbon(pts,6.5,C.conc,0.12,true));
   var e=elev(END[0],END[1]);
@@ -488,14 +547,7 @@ var STAT={};
 /* ===== Option 2 — cut & bench ===== */
 (function(g){
   var yTop=elev(END[0],END[1])-6.0;
-  var pts=buildPath(BASE_XZ,(function(){
-    var L=14;
-    return function(s,SS){
-      if(s<=L) return Y_ST+(0.5/L)*s;
-      if(s>=SS-L) return yTop;
-      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(SS-2*L);
-    };
-  })());
+  var pts=PROFILE.B;
   STAT.B=stats(pts);
   g.add(ribbon(pts,6.5,C.conc,0.12,true));
   wallAlong(pts,7.4,1,g);
@@ -509,9 +561,9 @@ var STAT={};
 
 /* ===== Option 3 — stretch into the flag body ===== */
 (function(g){
-  var landing=STRETCH_XZ[STRETCH_XZ.length-1];
+  var landing=STRETCH_LANDING;
   var yTop=elev(landing[0],landing[1])-5.0;
-  var pts=buildPath(STRETCH_XZ,function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; });
+  var pts=PROFILE.C;
   STAT.C=stats(pts);
   g.add(ribbon(pts,6.5,C.conc,0.12,true));
   wallAlong(pts,7.4,1,g);
@@ -525,16 +577,9 @@ var STAT={};
 
 /* ===== Option 4 — full treatment ===== */
 (function(g){
-  var landing=STRETCH_XZ[STRETCH_XZ.length-1];
+  var landing=STRETCH_LANDING;
   var yTop=elev(landing[0],landing[1])-5.0;
-  var pts=buildPath(STRETCH_XZ,(function(){
-    var L=16;
-    return function(s,S){
-      if(s<=L) return Y_ST+(0.5/L)*s;
-      if(s>=S-L) return yTop;
-      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(S-2*L);
-    };
-  })());
+  var pts=PROFILE.D;
   STAT.D=stats(pts);
   /* two-track ribbons */
   g.add(ribbon(offsetPath(pts,-3.1),2.3,C.conc,0.12,true));
