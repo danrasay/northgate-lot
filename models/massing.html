@@ -34,13 +34,13 @@
   #panel{position:fixed;left:0;right:0;bottom:0;z-index:10;
     padding:10px 12px calc(10px + env(safe-area-inset-bottom));
     background:linear-gradient(to top, rgba(239,233,221,.97) 70%, rgba(239,233,221,0))}
-  #tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:560px;margin:0 auto 8px}
+  #tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;max-width:560px;margin:0 auto 8px}
   .tab{appearance:none;border:1.5px solid var(--moss);background:var(--sandlt);
     color:var(--forest);border-radius:8px;padding:7px 2px 6px;cursor:pointer;
     font-family:'Space Grotesk',sans-serif;line-height:1.15;transition:background .15s,color .15s}
   .tab b{display:block;font-size:15px;font-weight:700}
-  .tab span{display:block;font-family:'IBM Plex Mono',monospace;font-size:8.5px;
-    letter-spacing:.02em;color:var(--gray)}
+  .tab span{display:block;font-family:'IBM Plex Mono',monospace;font-size:7.8px;
+    letter-spacing:0;color:var(--gray)}
   .tab.active{background:var(--copper);border-color:var(--copper);color:#fff}
   .tab.active span{color:#F7E3CB}
   .tab:focus-visible{outline:2.5px solid var(--copper);outline-offset:2px}
@@ -93,6 +93,8 @@
     <button class="tab" id="tab-B" role="tab"><b>B</b><span>duplex</span></button>
     <button class="tab" id="tab-C" role="tab"><b>C</b><span>house only</span></button>
     <button class="tab" id="tab-D" role="tab"><b>D</b><span>compound</span></button>
+    <button class="tab" id="tab-E" role="tab"><b>E</b><span>tiny + dog run</span></button>
+    <button class="tab" id="tab-F" role="tab"><b>F</b><span>tiny + tennis</span></button>
   </div>
   <div id="card">
     <h2 id="card-title"></h2>
@@ -513,7 +515,7 @@ for(var i=0;i<FIRS.length;i++){ scene.add(fir(FIRS[i][0],FIRS[i][1],FIRS[i][2]))
 })();
 
 /* ---------- option groups ---------- */
-var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new THREE.Group()};
+var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new THREE.Group(),E:new THREE.Group(),F:new THREE.Group()};
 Object.keys(groups).forEach(function(k){ scene.add(groups[k]); });
 
 function steppedHouse(target){
@@ -606,6 +608,82 @@ steppedHouse(groups.C);
   g.add(lineFromPts(pth,0x8B8677,true));
 })(groups.D);
 
+/* shared: tiny home just inside the pole junction */
+function tinyHome(g){
+  var p=padFor(58,132,14,24); g.add(p.slab);
+  var m=gableBlock(14,24,8.5,5,C.wall,C.roofCopper);
+  m.position.set(58,p.e,132); g.add(m);
+  var l=makeLabel('TINY HOME ~400 SF'); l.position.set(58,p.e+18,132); g.add(l);
+}
+function fence(ring,g){
+  function rail(lift){
+    var pts=[];
+    for(var i=0;i<ring.length;i++){
+      var a=ring[i], b=ring[(i+1)%ring.length];
+      var n=Math.max(1,Math.round(Math.hypot(b[0]-a[0],b[1]-a[1])/8));
+      for(var s=0;s<=n;s++){
+        var t=s/n, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
+        pts.push(new THREE.Vector3(x,elev(x,z)+lift,z));
+      }
+    }
+    pts.push(pts[0].clone());
+    g.add(lineFromPts(pts,0x6B5F49,false));
+  }
+  rail(2.2); rail(4.4);
+  for(var i=0;i<ring.length;i++){
+    var a=ring[i], b=ring[(i+1)%ring.length];
+    var L=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.max(1,Math.round(L/22));
+    for(var s=0;s<n;s++){
+      var t=s/n, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
+      var p=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,5,5),
+          new THREE.MeshLambertMaterial({color:0x6B5F49}));
+      p.position.set(x,elev(x,z)+2.5,z); g.add(p);
+    }
+  }
+}
+
+/* E — tiny home + open dog run */
+(function(g){
+  tinyHome(g);
+  var RUN=[[45,150],[45,180],[-5,243],[-68,238],[-68,150]];
+  fence(RUN,g);
+  g.add(ribbonPath(RUN,1.2,0x8B8677,0.5,true));
+  var l=makeLabel('DOG RUN — ~8,800 SF OPEN'); l.position.set(-12, elev(-12,195)+10, 195); g.add(l);
+})(groups.E);
+
+/* F — court + dwelling in ONE building (120x60 tournament interior) */
+(function(g){
+  /* FFE mid-slope for balanced cut/fill */
+  var FFE=elev(-30,157);
+  var slab=new THREE.Mesh(new THREE.BoxGeometry(132,1.6,72),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  slab.position.set(-30,FFE-0.8,157); slab.receiveShadow=true; slab.castShadow=true; g.add(slab);
+  g.add(retWall(-92,32,190,FFE));
+  /* court shell: 124x64 exterior, 120x60 clear interior; eaves ~22 ft, ridge ~38 ft */
+  var shell=gableBlock(64,124,22,16,C.wall2,0x49524A);
+  shell.rotation.y=Math.PI/2;
+  shell.position.set(-30,FFE,157); g.add(shell);
+  /* attached ~400 sf dwelling wing at the pole-junction corner */
+  var wslab=new THREE.Mesh(new THREE.BoxGeometry(26,1.6,36),
+      new THREE.MeshLambertMaterial({color:C.pad}));
+  wslab.position.set(41,FFE-0.8,144); wslab.receiveShadow=true; g.add(wslab);
+  var wing=gableBlock(18,28,9,5.5,C.wall,C.roofCopper);
+  wing.position.set(41,FFE,144); g.add(wing);
+  /* arrival path from the pole drive to the dwelling door */
+  g.add(ribbonPath([[64,136],[52,140]],6,0xB9B1A2,0.55));
+  /* tournament court: 78x36 with 21-ft runbacks / 12-ft sides inside 120x60 */
+  var cx0=-69,cx1=9,cz0=139,cz1=175, y=FFE+0.4;
+  g.add(lineFromPts([new THREE.Vector3(cx0,y,cz0),new THREE.Vector3(cx1,y,cz0),
+    new THREE.Vector3(cx1,y,cz1),new THREE.Vector3(cx0,y,cz1),
+    new THREE.Vector3(cx0,y,cz0)],0xF2EFE7,false));
+  g.add(lineFromPts([new THREE.Vector3(-30,y,cz0),new THREE.Vector3(-30,y,cz1)],0xF2EFE7,false));
+  g.add(lineFromPts([new THREE.Vector3(-30,y+3.5,cz0),new THREE.Vector3(-30,y+3.5,cz1)],0x2B2B28,false));
+  var l=makeLabel('COURT + DWELLING — ONE BUILDING');
+  l.position.set(-30,FFE+52,157); g.add(l);
+  var l2=makeLabel('DWELLING WING ~400 SF'); l2.position.set(41,FFE+22,144);
+  l2.material.opacity=.85; g.add(l2);
+})(groups.F);
+
 /* ---------- captions ---------- */
 var INFO={
   A:{t:'Option A — Rental house + detached ADU',
@@ -619,7 +697,13 @@ var INFO={
      c:['~2,400 sf','$1.10–1.35M excl. land','$4.8–5.8K/mo','Simplest build']},
   D:{t:'Option D — Consolidated compound',
      b:'Your lot and this one merged (dashed shared line). The workshop + studio hugs your side for daily access; the court terraces into the mid-slope bench behind a retaining wall; the ADU takes the quiet upper corner. Fully phase-able.',
-     c:['$0.8–1.1M full scope','ADU $2.0–2.4K/mo','Only lawful STR route','Lifestyle path']}
+     c:['$0.8–1.1M full scope','ADU $2.0–2.4K/mo','Only lawful STR route','Lifestyle path']},
+  E:{t:'Option E — Tiny home + open dog run',
+     b:'A ~400 sf tiny home sits just inside the pole junction — the shortest driveway run and the smallest cut on the steep strip. Behind it the meadow becomes a fenced ~8,800 sf open dog run following the lot lines. The upper bench stays untouched for a future phase.',
+     c:['TINY ~400 SF AT POLE','DOG RUN ~8,800 SF','Est. $200–350K all-in','Lowest cost · phase-friendly']},
+  F:{t:'Option F — Court + dwelling, one building',
+     b:'A single 124×64 ft structure on the lower meadow: 120×60 ft clear-span interior meets tournament standards (21-ft runbacks, 12-ft sides), with a ~400 sf dwelling wing attached at the pole-junction corner — one foundation, one utility run. FFE sits mid-slope for balanced cut/fill (~6 ft retained uphill, ~7 ft exposed downhill). Eaves ~22 ft, ridge ~38 ft — well above accessory-structure norms, so plan on a zoning adjustment.',
+     c:['ONE BLDG: COURT + DWELLING','120×60 TOURNAMENT INTERIOR','RIDGE ~38 FT — ZONING CHECK','Est. $650K–1.2M']}
 };
 var current='A';
 function setOption(k){
@@ -635,7 +719,7 @@ function setOption(k){
     var s=document.createElement('span'); s.className='chip'; s.textContent=x; ch.appendChild(s);
   });
 }
-['A','B','C','D'].forEach(function(k){
+['A','B','C','D','E','F'].forEach(function(k){
   document.getElementById('tab-'+k).addEventListener('click',function(){ setOption(k); });
 });
 setOption('A');
