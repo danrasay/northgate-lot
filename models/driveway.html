@@ -63,6 +63,11 @@
     padding:6px 9px;max-width:158px}
   #legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;
     vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
+  #legend .gradebar{display:block;height:7px;border-radius:3px;margin:4px 0 2px;
+    background:linear-gradient(to right,#D9D4C9 0%,#DBBD75 29%,#C7753D 59%,#A83329 100%);
+    border:1px solid rgba(0,0,0,.15)}
+  #legend .gradelabels{display:flex;justify-content:space-between;font-size:7.5px;
+    color:var(--gray);margin-bottom:5px}
   @media (max-width:430px){ #legend{display:none} }
 </style>
 </head>
@@ -76,7 +81,9 @@
 
 <div id="hint">drag to orbit · pinch or scroll to zoom</div>
 <div id="legend">
-  <span class="sw" style="background:#D8D4CA"></span>drive surface<br>
+  drive surface, colored by local grade:
+  <span class="gradebar"></span>
+  <span class="gradelabels"><span>0%</span><span>~20% cap</span><span>30%+</span></span>
   <span class="sw" style="background:#B3AC9C"></span>retaining wall<br>
   <span class="sw" style="background:#6E7F5E"></span>planter / swale<br>
   <span class="sw" style="background:#555049"></span>trench drain<br>
@@ -149,7 +156,7 @@ var SITE = jsons[1];
 REF = elevAbs(SITE.ref_point.x, SITE.ref_point.z);   /* driveway apron at the cul-de-sac */
 
 var FLAG=SITE.taxlots.flag, NORTHGATE=SITE.streets.northgate, CULDESAC=SITE.streets.cul_de_sac;
-var POLE=SITE.driveway_pole, CONT10=SITE.contours_10ft, CONT2=SITE.contours_2ft;
+var POLE=SITE.driveway_pole;
 var EXT = {x0:-50, x1:150, z0:-95, z1:205};   /* tight crop around the pole, cul-de-sac, and landing area */
 
 document.getElementById('legend-elev').textContent = 'street ~' + Math.round(REF) + ' ft at the apron';
@@ -285,21 +292,51 @@ function fir(x,z,h){
   g.position.set(x,e,z); return g;
 }
 
-/* ribbon surface from a centerline [x,z,y] */
-function ribbon(pts,halfW,color,lift){
-  var verts=[], idx=[], n=pts.length;
+/* grade color ramp: pale concrete (gentle) -> amber -> at Portland's ~20% cap (copper) -> over it (alert red).
+   Starts pale rather than green so a gentle stretch still reads as pavement, not lawn. */
+function gradeColor(grade){
+  var stops=[
+    [0.00,[0.85,0.83,0.79]],
+    [0.10,[0.86,0.74,0.46]],
+    [0.20,[0.78,0.46,0.24]],
+    [0.34,[0.66,0.20,0.16]]
+  ];
+  for(var i=0;i<stops.length-1;i++){
+    var a=stops[i], b=stops[i+1];
+    if(grade<=b[0] || i===stops.length-2){
+      var u=Math.max(0,Math.min(1,(grade-a[0])/(b[0]-a[0])));
+      return [a[1][0]+(b[1][0]-a[1][0])*u, a[1][1]+(b[1][1]-a[1][1])*u, a[1][2]+(b[1][2]-a[1][2])*u];
+    }
+  }
+  return stops[stops.length-1][1];
+}
+/* ribbon surface from a centerline [x,z,y] — byGrade colors the surface by local slope,
+   so the pinch on each option is visible against the ground instead of a flat tint */
+function ribbon(pts,halfW,color,lift,byGrade){
+  var verts=[], idx=[], cols=byGrade?[]:null, n=pts.length;
   for(var i=0;i<n;i++){
     var a=pts[Math.max(i-1,0)], b=pts[Math.min(i+1,n-1)], p=pts[i];
     var dx=b[0]-a[0], dz=b[1]-a[1], L=Math.hypot(dx,dz)||1;
     var nx=-dz/L, nz=dx/L;
     verts.push(p[0]-nx*halfW, p[2]+lift, p[1]-nz*halfW,
                p[0]+nx*halfW, p[2]+lift, p[1]+nz*halfW);
+    if(byGrade){
+      var c=gradeColor(Math.abs(b[2]-a[2])/L);
+      cols.push(c[0],c[1],c[2], c[0],c[1],c[2]);
+    }
   }
   for(var i2=0;i2<n-1;i2++){ var a2=i2*2; idx.push(a2,a2+1,a2+2, a2+1,a2+3,a2+2); }
   var g=new THREE.BufferGeometry();
   g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
   g.setIndex(idx); g.computeVertexNormals();
-  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide}));
+  var mat;
+  if(byGrade){
+    g.setAttribute('color',new THREE.Float32BufferAttribute(cols,3));
+    mat=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide});
+  } else {
+    mat=new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide});
+  }
+  var m=new THREE.Mesh(g,mat);
   m.receiveShadow=true; m.castShadow=true;
   return m;
 }
@@ -379,30 +416,6 @@ function bezier(p0,p1,p2,n){
   return out;
 }
 
-/* ---------- real surveyed contour vectors (context) ---------- */
-(function(){
-  var mat2=new THREE.LineBasicMaterial({color:0x6E7A66,transparent:true,opacity:0.5});
-  var mat10=new THREE.LineBasicMaterial({color:0xB0713A});
-  function draw(arr,mat,lift){
-    for(var i=0;i<arr.length;i++){
-      var fl=arr[i][1], pts=[];
-      for(var k2=0;k2<fl.length-2;k2+=2){
-        var x1=fl[k2],z1=fl[k2+1],x2=fl[k2+2],z2=fl[k2+3];
-        var n=Math.max(1,Math.round(Math.hypot(x2-x1,z2-z1)/9));
-        for(var s=0;s<n;s++){
-          var t=s/n, x=x1+(x2-x1)*t, z=z1+(z2-z1)*t;
-          pts.push(new THREE.Vector3(x,elev(x,z)+lift,z));
-        }
-      }
-      pts.push(new THREE.Vector3(fl[fl.length-2],
-        elev(fl[fl.length-2],fl[fl.length-1])+lift, fl[fl.length-1]));
-      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));
-    }
-  }
-  draw(CONT2,mat2,0.35);
-  draw(CONT10,mat10,0.5);
-})();
-
 /* ---------- shared context: real cul-de-sac, street, lot line, trees ---------- */
 (function(){
   scene.add(ribbonPath(NORTHGATE,24,C.drive,0.45));
@@ -445,7 +458,7 @@ var STAT={};
 (function(g){
   var pts=buildPath(BASE_XZ,function(s,S,x,z){ return elev(x,z)+0.35; });
   STAT.A=stats(pts);
-  g.add(ribbon(pts,6.5,C.conc,0.12));
+  g.add(ribbon(pts,6.5,C.conc,0.12,true));
   var e=elev(END[0],END[1]);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(30,1.2,26),
       new THREE.MeshLambertMaterial({color:C.pad}));
@@ -466,7 +479,7 @@ var STAT={};
     };
   })());
   STAT.B=stats(pts);
-  g.add(ribbon(pts,6.5,C.conc,0.12));
+  g.add(ribbon(pts,6.5,C.conc,0.12,true));
   wallAlong(pts,7.4,1,g);
   wallAlong(pts,7.4,-1,g);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(32,1.2,26),
@@ -482,7 +495,7 @@ var STAT={};
   var yTop=elev(landing[0],landing[1])-5.0;
   var pts=buildPath(STRETCH_XZ,function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; });
   STAT.C=stats(pts);
-  g.add(ribbon(pts,6.5,C.conc,0.12));
+  g.add(ribbon(pts,6.5,C.conc,0.12,true));
   wallAlong(pts,7.4,1,g);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(34,1.2,28),
       new THREE.MeshLambertMaterial({color:C.pad}));
@@ -506,8 +519,8 @@ var STAT={};
   })());
   STAT.D=stats(pts);
   /* two-track ribbons */
-  g.add(ribbon(offsetPath(pts,-3.1),2.3,C.conc,0.12));
-  g.add(ribbon(offsetPath(pts, 3.1),2.3,C.conc,0.12));
+  g.add(ribbon(offsetPath(pts,-3.1),2.3,C.conc,0.12,true));
+  g.add(ribbon(offsetPath(pts, 3.1),2.3,C.conc,0.12,true));
   wallAlong(pts,7.4,1,g);
   /* pullout bulge */
   (function(){
