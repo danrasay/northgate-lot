@@ -24,6 +24,11 @@
   header h1{font-size:15px;font-weight:700;color:#fff;letter-spacing:.01em}
   header .tag{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:#F0C89A;
     letter-spacing:.08em;text-transform:uppercase}
+  header #viewbtn{margin-left:auto;appearance:none;cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;font-size:9.5px;letter-spacing:.06em;
+    background:transparent;color:#F0C89A;border:1.5px solid var(--copper);border-radius:999px;
+    padding:4px 10px;transition:background .15s,color .15s}
+  header #viewbtn.on{background:var(--copper);color:#fff}
 
   /* bottom UI */
   #panel{position:fixed;left:0;right:0;bottom:0;z-index:10;
@@ -59,9 +64,11 @@
   #legend{position:fixed;top:56px;right:10px;z-index:9;font-family:'IBM Plex Mono',monospace;
     font-size:8.5px;line-height:1.5;color:var(--forest);
     background:rgba(247,244,236,.92);border:1px solid var(--rule);border-radius:8px;
-    padding:6px 9px;max-width:150px}
+    padding:6px 9px;max-width:170px}
   #legend .cline{display:inline-block;width:16px;height:0;border-top:2px solid var(--copper);
     vertical-align:middle;margin-right:4px}
+  #legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;
+    vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
   @media (max-width:430px){ #legend{display:none} }
 </style>
 </head>
@@ -70,11 +77,15 @@
 
 <header>
   <h1>S Northgate — Hillside Massing Study</h1>
-  <span class="tag">DOGAMI-anchored · contours approx.</span>
+  <span class="tag">USGS 3DEP lidar · PortlandMaps taxlots · 2024 aerial</span>
+  <button id="viewbtn" aria-pressed="false">AERIAL VIEW</button>
 </header>
 
 <div id="hint">drag to orbit · pinch or scroll to zoom</div>
-<div id="legend"><span class="cline"></span>10-ft index contour<br>thin lines: 2-ft contours<br>street ~344 ft → NE rear ~382 ft<br>shallow landslide: LOW (DOGAMI)</div>
+<div id="legend"><span class="cline"></span>10-ft contour — 2019 city lidar<br>thin lines: 2-ft lidar contours<br>
+<span class="sw" style="background:#B0713A"></span>purchase lot (flag)<br>
+<span class="sw" style="background:#1F5FA8"></span>your lot — 11520<br>
+<span id="legend-elev">elevations loading…</span><br>shallow landslide: LOW (DOGAMI)</div>
 
 <div id="panel">
   <div id="tabs" role="tablist" aria-label="Development options">
@@ -88,14 +99,15 @@
     <p id="card-body"></p>
     <div id="chips"></div>
   </div>
-  <div id="foot">Orientation, 340-ft anchor, and LOW shallow-landslide finding from your annotated DOGAMI map;
-  contours between anchors remain approximate. The PortlandMaps 2-ft layer or your topo survey will refine.
-  Schematic massing only, not architecture.</div>
+  <div id="foot">Lot lines &amp; building footprints: PortlandMaps GIS taxlot base (areas match county: 25,281 sf flag,
+  52,621 sf home lot). Terrain: USGS 3DEP lidar via epqs.nationalmap.gov — 29×29 grid at ~17 ft, Catmull-Rom
+  interpolated. Contours: City of Portland 2019 lidar vectors (surveyed). Aerial: PortlandMaps Summer 2024
+  orthophoto (toggle, top right). Shallow-landslide LOW per DOGAMI. Schematic massing only, not architecture.</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-(function(){
+(async function(){
 "use strict";
 
 /* ---------- palette ---------- */
@@ -103,49 +115,53 @@ var C = {
   forest:0x1F3D2B, moss:0x4A6B52, copper:0xB0713A, sand:0xEFE9DD,
   wall:0xF2EFE7, wall2:0xDDD6C6, roof:0x49524A, roofCopper:0xB0713A,
   pad:0xCEC8B8, wallRet:0xB3AC9C, court:0x7E8C88, drive:0xA79F90,
-  exist:0xCFC9B8, sky:0xE9EEE4, trunk:0x6B5138, fir1:0x3F5A43, fir2:0x4C6B4E
+  exist:0xCFC9B8, sky:0xE9EEE4, trunk:0x6B5138, fir1:0x3F5A43, fir2:0x4C6B4E,
+  homeblue:0x1F5FA8
 };
 
-/* ---------- terrain model (feet) ---------- */
-/* z: 0 at street edge, rising uphill to z=245 (rear). x: east-west. */
-var CTRL = [[-60,-2],[0,0],[40,6.5],[95,14],[150,18],[185,26],[215,33],[245,36],[320,38.5]];
-function baseElev(z){
-  if (z <= CTRL[0][0]) return CTRL[0][1];
-  for (var i=0;i<CTRL.length-1;i++){
-    var a=CTRL[i], b=CTRL[i+1];
-    if (z <= b[0]){
-      var t=(z-a[0])/(b[0]-a[0]);
-      t = t*t*(3-2*t);                 /* smoothstep between control points */
-      return a[1]+(b[1]-a[1])*t;
-    }
-  }
-  return CTRL[CTRL.length-1][1];
+/* ---------- terrain model: USGS 3DEP lidar, Catmull-Rom bicubic ---------- */
+var DEM = null, REF = 0, RAMP_LO = 300, RAMP_HI = 460;
+function demSample(cx,cz){
+  cx = Math.max(0, Math.min(DEM.nx-1, cx));
+  cz = Math.max(0, Math.min(DEM.nz-1, cz));
+  return DEM.e[cz][cx];
 }
-function gauss(x,z,cx,cz,s){ var dx=x-cx,dz=z-cz; return Math.exp(-(dx*dx+dz*dz)/(2*s*s)); }
-/* Absolute elevation in feet — anchored to the labeled 340-ft contour near
-   S Northgate Ave on the DOGAMI map; street at the pole ~344 ft. */
+function catmullRom(p0,p1,p2,p3,t){
+  var t2=t*t, t3=t2*t;
+  return 0.5*((2*p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t2 + (-p0+3*p1-3*p2+p3)*t3);
+}
+/* Absolute elevation in feet, bicubic-sampled off data/dem_grid.json (USGS 3DEP). */
 function elevAbs(x,z){
-  var e = 344 + baseElev(z);
-  var f = Math.max(0, Math.min(1, z/240));
-  e += 2.1*Math.sin((x+40)/48)*f;                          /* gentle cross roll */
-  e += 2.5*Math.max(-1,Math.min(1,x/130))*(0.35+0.65*f);   /* NE corner rides high */
-  e += 2.6*gauss(x,z, 48,158, 52);                          /* knoll on the bench */
-  e -= 2.0*gauss(x,z,-58,192, 55);                          /* swale, south rear */
-  e -= 7.0*gauss(x,z,-175,-25, 75);                         /* eases SW toward Terwilliger / Tryon Creek */
-  return e;
+  var gx=(x-DEM.x0)/DEM.dx, gz=(z-DEM.z0)/DEM.dz;
+  var ix=Math.floor(gx), iz=Math.floor(gz), tx=gx-ix, tz=gz-iz;
+  var rows=[];
+  for (var j=-1;j<=2;j++){
+    rows.push(catmullRom(demSample(ix-1,iz+j),demSample(ix,iz+j),demSample(ix+1,iz+j),demSample(ix+2,iz+j),tx));
+  }
+  return catmullRom(rows[0],rows[1],rows[2],rows[3],tz);
 }
 /* Scene geometry stays near y=0; only labels and contours use absolute feet. */
-function elev(x,z){ return elevAbs(x,z) - 344; }
+function elev(x,z){ return elevAbs(x,z) - REF; }
 
-/* ---------- lot geometry ---------- */
-var LOT = { poleX0:-67, poleX1:-43, poleZ0:0, poleZ1:95,
-            bodyX0:-90, bodyX1:85, bodyZ0:95, bodyZ1:245 };
-var EXT = { x0:-190, x1:150, z0:-45, z1:300 };   /* terrain extent */
+var fetched = await Promise.all([fetch('../data/dem_grid.json'), fetch('../data/site_vectors.json')]);
+if (!fetched[0].ok) throw new Error('dem_grid.json fetch failed: ' + fetched[0].status);
+if (!fetched[1].ok) throw new Error('site_vectors.json fetch failed: ' + fetched[1].status);
+var jsons = await Promise.all(fetched.map(function(r){ return r.json(); }));
+DEM = jsons[0];
+var SITE = jsons[1];
+REF = elevAbs(SITE.ref_point.x, SITE.ref_point.z);   /* driveway apron at the cul-de-sac */
+
+/* ---------- site geometry (PortlandMaps taxlots; local feet, +x north, +z east) ---------- */
+var FLAG=SITE.taxlots.flag, HOME=SITE.taxlots.home, SHARED=SITE.taxlots.shared_line;
+var HOME_BLDG=SITE.buildings.home, NBR_BLDG=SITE.buildings.neighbor;
+var NORTHGATE=SITE.streets.northgate, ELYSIUM=SITE.streets.elysium, CULDESAC=SITE.streets.cul_de_sac;
+var POLE=SITE.driveway_pole, CONT10=SITE.contours_10ft, CONT2=SITE.contours_2ft, FIRS=SITE.trees;
+var EXT = SITE.ext;   /* terrain extent */
 
 /* ---------- three.js scaffolding ---------- */
 var scene = new THREE.Scene();
 scene.background = new THREE.Color(C.sky);
-scene.fog = new THREE.Fog(C.sky, 700, 1300);
+scene.fog = new THREE.Fog(C.sky, 850, 1700);
 
 var camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 3000);
 var renderer = new THREE.WebGLRenderer({antialias:true});
@@ -157,19 +173,21 @@ document.getElementById('scene').appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xF4F6EC, 0x5E6B58, .75));
 var sun = new THREE.DirectionalLight(0xFFF6E4, .85);
-sun.position.set(-220, 320, -140);
+sun.position.set(-260, 380, -160);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
-sun.shadow.camera.left=-260; sun.shadow.camera.right=260;
-sun.shadow.camera.top=260;  sun.shadow.camera.bottom=-260;
-sun.shadow.camera.far=1200; sun.shadow.bias=-0.0004;
+sun.shadow.camera.left=-430; sun.shadow.camera.right=430;
+sun.shadow.camera.top=430;  sun.shadow.camera.bottom=-430;
+sun.shadow.camera.far=1600; sun.shadow.bias=-0.0004;
 scene.add(sun);
 
-/* ---------- contour texture (the signature) ---------- */
-function contourTexture(){
-  var W=1024,H=1024, cv=document.createElement('canvas');
+/* ---------- ground textures: contour plan + Summer 2024 aerial drape ---------- */
+function groundTexture(img){
+  var W=1024,H=1056, cv=document.createElement('canvas');
   cv.width=W; cv.height=H;
-  var g=cv.getContext('2d'), img=g.createImageData(W,H), d=img.data;
+  var g=cv.getContext('2d'), p=null;
+  if(img){ g.drawImage(img,0,0,W,H); p=g.getImageData(0,0,W,H).data; }
+  var out=g.createImageData(W,H), d=out.data;
   function ramp(t){ /* low -> high greens on sand */
     var a=[168,186,150], b=[104,132,104], c2=[86,112,92];
     var r,gr,bl;
@@ -178,42 +196,63 @@ function contourTexture(){
     return [r,gr,bl];
   }
   for(var j=0;j<H;j++){
-    var z = EXT.z0 + (1-j/(H-1))*(EXT.z1-EXT.z0);   /* v=0 at z1 after plane rotation */
+    var z = EXT.z0 + (1-j/(H-1))*(EXT.z1-EXT.z0);
     for(var i=0;i<W;i++){
       var x = EXT.x0 + (i/(W-1))*(EXT.x1-EXT.x0);
-      var e = elevAbs(x,z), col;
-      if (z < -6){ col=[142,138,128]; }              /* street asphalt band */
-      else {
-        var t=Math.max(0,Math.min(1,(e-338)/46));
+      var col, k=(j*W+i)*4;
+      if(p){
+        col=[p[k],p[k+1],p[k+2]];
+      } else {
+        var t=Math.max(0,Math.min(1,(elevAbs(x,z)-RAMP_LO)/(RAMP_HI-RAMP_LO)));
         col=ramp(t);
-        var m2=Math.abs(((e/2)%1+1)%1-0.5), m10=Math.abs(((e/10)%1+1)%1-0.5);
-        if (m10>0.5-0.045){ col=[176,113,58]; }      /* 10-ft index, copper */
-        else if (m2>0.5-0.055){ col=[col[0]*0.72,col[1]*0.72,col[2]*0.72]; }
       }
-      var k=(j*W+i)*4; d[k]=col[0]; d[k+1]=col[1]; d[k+2]=col[2]; d[k+3]=255;
+      d[k]=col[0]; d[k+1]=col[1]; d[k+2]=col[2]; d[k+3]=255;
     }
   }
-  g.putImageData(img,0,0);
+  g.putImageData(out,0,0);
   var tx=new THREE.CanvasTexture(cv);
   tx.anisotropy = renderer.capabilities.getMaxAnisotropy();
   return tx;
 }
+var terraMat=null, planTex=null, satTex=null;
 
 /* ---------- terrain mesh ---------- */
 (function(){
-  var w=EXT.x1-EXT.x0, dpt=EXT.z1-EXT.z0, seg=132;
+  var w=EXT.x1-EXT.x0, dpt=EXT.z1-EXT.z0, seg=170;
   var geo=new THREE.PlaneGeometry(w,dpt,seg,seg);
   geo.rotateX(-Math.PI/2);
   var p=geo.attributes.position;
+  var lo=Infinity, hi=-Infinity;
   for(var i=0;i<p.count;i++){
     var x=p.getX(i)+ (EXT.x0+EXT.x1)/2, z=p.getZ(i)+(EXT.z0+EXT.z1)/2;
-    p.setY(i, elev(x,z));
+    var eA=elevAbs(x,z);
+    if(eA<lo) lo=eA; if(eA>hi) hi=eA;
+    p.setY(i, eA-REF);
   }
+  RAMP_LO=Math.floor(lo/10)*10; RAMP_HI=Math.ceil(hi/10)*10;
   geo.computeVertexNormals();
-  var m=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({map:contourTexture()}));
+  planTex=groundTexture(null);
+  terraMat=new THREE.MeshLambertMaterial({map:planTex});
+  var m=new THREE.Mesh(geo,terraMat);
   m.position.set((EXT.x0+EXT.x1)/2,0,(EXT.z0+EXT.z1)/2);
   m.receiveShadow=true;
   scene.add(m);
+})();
+
+/* aerial drape toggle (PortlandMaps Summer 2024 orthophoto) */
+(function(){
+  var btn=document.getElementById('viewbtn'), on=false, img=new Image();
+  img.onload=function(){ satTex=groundTexture(img); };
+  img.src='../data/aerial.jpg';
+  btn.addEventListener('click',function(){
+    if(!satTex) return;
+    on=!on;
+    terraMat.map = on ? satTex : planTex;
+    terraMat.needsUpdate=true;
+    btn.textContent = on ? 'PLAN VIEW' : 'AERIAL VIEW';
+    btn.classList.toggle('on',on);
+    btn.setAttribute('aria-pressed',String(on));
+  });
 })();
 
 /* ---------- helpers ---------- */
@@ -225,14 +264,6 @@ function lineFromPts(pts, color, dashed){
   var ln=new THREE.Line(g,mat);
   if(dashed) ln.computeLineDistances();
   return ln;
-}
-function groundPts(xz){  /* array of [x,z] -> Vector3 draped on terrain */
-  var out=[];
-  for(var i=0;i<xz.length;i++){
-    var a=xz[i], b=xz[(i+1)%xz.length] || a, steps=(i<xz.length-1||true)?1:1;
-    out.push(new THREE.Vector3(a[0], elev(a[0],a[1])+0.6, a[1]));
-  }
-  return out;
 }
 function drapedLoop(xz, color, dashed, lift){
   var pts=[];
@@ -273,17 +304,10 @@ function gableBlock(w,d,wallH,roofH,wallColor,roofColor){
   walls.position.y=wallH/2; walls.castShadow=true; walls.receiveShadow=true;
   grp.add(walls);
   var hw=w/2, hd=d/2, y0=wallH, y1=wallH+roofH, o=1.2;
-  var v=[
-    -hw-o,y0,-hd-o,  hw+o,y0,-hd-o,  0,y1,-hd-o,     /* gable end -z */
-    -hw-o,y0, hd+o,  hw+o,y0, hd+o,  0,y1, hd+o,     /* gable end +z */
-  ];
   var pos=[
     /* slope 1 */ -hw-o,y0,-hd-o, 0,y1,-hd-o, 0,y1,hd+o,  -hw-o,y0,-hd-o, 0,y1,hd+o, -hw-o,y0,hd+o,
     /* slope 2 */  hw+o,y0,-hd-o, hw+o,y0,hd+o, 0,y1,hd+o,  hw+o,y0,-hd-o, 0,y1,hd+o, 0,y1,-hd-o,
-    /* end A  */  -hw-o,y0,-hd-o, -hw-o,y0,-hd-o, 0,y1,-hd-o,  /* degenerate placeholder replaced below */
   ];
-  /* rebuild ends properly */
-  pos = pos.slice(0,36);
   pos = pos.concat([ -hw-o,y0,-hd-o,  hw+o,y0,-hd-o,  0,y1,-hd-o ]);
   pos = pos.concat([  hw+o,y0, hd+o, -hw-o,y0, hd+o,  0,y1, hd+o ]);
   var rg=new THREE.BufferGeometry();
@@ -327,70 +351,165 @@ function fir(x,z,h){
   g.position.set(x,e,z);
   return g;
 }
+function ribbonPath(pts,w2,color,lift,close){
+  var P=pts.slice(); if(close) P.push(pts[0]);
+  var verts=[],idx=[],n=0;
+  for(var i=0;i<P.length-1;i++){
+    var a=P[i],b=P[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    if(len<0.01) continue;
+    var ux=(b[0]-a[0])/len, uz=(b[1]-a[1])/len, px=-uz, pz=ux;
+    var segs=Math.max(1,Math.round(len/7));
+    for(var s=0;s<=segs;s++){
+      var t=s/segs, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
+      var y=elev(x,z)+(lift||0.55);
+      verts.push(x+px*w2/2,y,z+pz*w2/2, x-px*w2/2,y,z-pz*w2/2);
+      if(s<segs){ var k=n+s*2; idx.push(k,k+1,k+2, k+1,k+3,k+2); }
+    }
+    n+=(segs+1)*2;
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide}));
+  m.receiveShadow=true;
+  return m;
+}
+function polyPrism(ring,base,h,color){
+  var pts2=ring.map(function(p){ return new THREE.Vector2(p[0],p[1]); });
+  var tris=THREE.ShapeUtils.triangulateShape(pts2,[]);
+  var verts=[],idx=[];
+  for(var i=0;i<ring.length;i++){ verts.push(ring[i][0],base+h,ring[i][1]); }
+  for(var i=0;i<tris.length;i++){ idx.push(tris[i][0],tris[i][1],tris[i][2]); }
+  for(var i=0;i<ring.length;i++){
+    var a=ring[i],b=ring[(i+1)%ring.length],k=verts.length/3;
+    verts.push(a[0],base,a[1], b[0],base,b[1], b[0],base+h,b[1], a[0],base+h,a[1]);
+    idx.push(k,k+1,k+2, k,k+2,k+3);
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide}));
+  m.castShadow=true; m.receiveShadow=true;
+  return m;
+}
+function ringMinElev(ring){ var m=1e9; for(var i=0;i<ring.length;i++){ m=Math.min(m,elev(ring[i][0],ring[i][1])); } return m; }
+function ringMaxElev(ring){ var m=-1e9; for(var i=0;i<ring.length;i++){ m=Math.max(m,elev(ring[i][0],ring[i][1])); } return m; }
+function post(x,z,color){
+  var m=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,7,6),
+      new THREE.MeshLambertMaterial({color:color}));
+  m.position.set(x,elev(x,z)+3.5,z); m.castShadow=true;
+  return m;
+}
+/* mean grade over a polyline, sampling absolute elevation at each endpoint */
+function pathGrade(pts){
+  var s=0;
+  for(var i=1;i<pts.length;i++) s+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);
+  var rise=Math.abs(elevAbs(pts[pts.length-1][0],pts[pts.length-1][1]) - elevAbs(pts[0][0],pts[0][1]));
+  return rise/s;
+}
+
+/* ---------- contours: City of Portland 2019 lidar vectors (surveyed) ---------- */
+(function(){
+  var mat2=new THREE.LineBasicMaterial({color:0x6E7A66,transparent:true,opacity:0.5});
+  var mat10=new THREE.LineBasicMaterial({color:0xB0713A});
+  function draw(arr,mat,lift){
+    for(var i=0;i<arr.length;i++){
+      var fl=arr[i][1], pts=[];
+      for(var k2=0;k2<fl.length-2;k2+=2){
+        var x1=fl[k2],z1=fl[k2+1],x2=fl[k2+2],z2=fl[k2+3];
+        var n=Math.max(1,Math.round(Math.hypot(x2-x1,z2-z1)/9));
+        for(var s=0;s<n;s++){
+          var t=s/n, x=x1+(x2-x1)*t, z=z1+(z2-z1)*t;
+          pts.push(new THREE.Vector3(x,elev(x,z)+lift,z));
+        }
+      }
+      pts.push(new THREE.Vector3(fl[fl.length-2],
+        elev(fl[fl.length-2],fl[fl.length-1])+lift, fl[fl.length-1]));
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));
+    }
+  }
+  draw(CONT2,mat2,0.35);
+  draw(CONT10,mat10,0.5);
+})();
 
 /* ---------- static site elements ---------- */
-/* street label + centerline */
+/* streets: ribbons draped on the lidar terrain; cul-de-sac bulb per plat */
 (function(){
-  var l=makeLabel('S NORTHGATE AVE',true); l.position.set(-30, 4.5, -16); scene.add(l);
-})();
-
-/* driveway up the pole */
-(function(){
-  var xs=-55, w=13, pts=[], zA=-14, zB=112;
-  var geo=new THREE.BufferGeometry(), verts=[], idx=[], steps=34;
-  for(var s=0;s<=steps;s++){
-    var z=zA+(zB-zA)*s/steps;
-    var xC = xs + (z>95 ? (z-95)*0.9 : 0);    /* curve east into the body */
-    var e=elev(xC,z)+0.5;
-    verts.push(xC-w/2,e,z, xC+w/2,e,z);
+  scene.add(ribbonPath(NORTHGATE,24,C.drive,0.45));
+  scene.add(ribbonPath(ELYSIUM,20,C.drive,0.45));
+  var R=CULDESAC.r, segs=40, cx=CULDESAC.cx, cz=CULDESAC.cz;
+  var verts=[cx,elev(cx,cz)+0.5,cz], idx=[];
+  for(var s=0;s<=segs;s++){
+    var a=s/segs*Math.PI*2, x=cx+R*Math.cos(a), z=cz+R*Math.sin(a);
+    verts.push(x,elev(x,z)+0.5,z);
+    if(s<segs) idx.push(0,s+1,s+2);
   }
-  for(var s2=0;s2<steps;s2++){
-    var a=s2*2; idx.push(a,a+1,a+2, a+1,a+3,a+2);
-  }
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
-  geo.setIndex(idx); geo.computeVertexNormals();
-  var m=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({color:C.drive}));
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:C.drive,side:THREE.DoubleSide}));
   m.receiveShadow=true; scene.add(m);
+  var l=makeLabel('S NORTHGATE AVE',true); l.position.set(10, elev(10,-52)+6, -52); scene.add(l);
+  var l2=makeLabel('S ELYSIUM PL',true); l2.position.set(175, elev(175,345)+7, 345); scene.add(l2);
+  var l3=makeLabel('CUL-DE-SAC · POLE ACCESS'); l3.position.set(cx, elev(cx,cz)+10, cz); l3.material.opacity=.85; scene.add(l3);
 })();
 
-/* lot boundary (copper) */
-scene.add(drapedLoop([
-  [LOT.poleX0,LOT.poleZ0],[LOT.poleX1,LOT.poleZ0],[LOT.poleX1,LOT.bodyZ0],
-  [LOT.bodyX1,LOT.bodyZ0],[LOT.bodyX1,LOT.bodyZ1],[LOT.bodyX0,LOT.bodyZ1],
-  [LOT.bodyX0,LOT.bodyZ0],[LOT.poleX0,LOT.bodyZ0]
-], C.copper, false, 1.0));
-
-/* owners' adjacent lot — NORTHEAST of the flag body, per annotated DOGAMI map */
-scene.add(drapedLoop([[LOT.bodyX1,105],[172,105],[172,265],[LOT.bodyX1,265]], 0x8B8677, false, 0.6));
+/* driveway up the 15-ft pole strip */
 (function(){
-  var e=elev(126,188);
-  var hs=gableBlock(38,46,11,7,C.exist,0x6E7268);
-  hs.position.set(126, e+0.6, 188); scene.add(hs);
-  var l=makeLabel('YOUR HOME (APPROX.)'); l.position.set(126, e+26, 188); scene.add(l);
+  scene.add(ribbonPath(POLE,13,C.drive,0.6));
+  var grade=Math.round(pathGrade(POLE)*100);
+  var l=makeLabel('POLE DRIVE ~'+grade+'% AVG GRADE');
+  l.position.set(POLE[2][0], elev(POLE[2][0],POLE[2][1])+9, POLE[2][1]);
+  l.material.opacity=.85; scene.add(l);
 })();
 
-/* context: S Powers Ct to the south, park falling away SW */
+/* ---------- lot lines (exact PortlandMaps taxlot geometry) ---------- */
+scene.add(ribbonPath(FLAG,2.4,C.copper,0.8,true));
+for(var fi=0;fi<FLAG.length;fi++){ scene.add(post(FLAG[fi][0],FLAG[fi][1],C.copper)); }
 (function(){
-  var pts=[]; for(var z=-8;z<=175;z+=10){
-    var x=-132-Math.sin((z+8)/70)*7;
-    pts.push(new THREE.Vector3(x, elev(x,z)+0.8, z));
-  }
-  scene.add(lineFromPts(pts,0x9A948A,true));
-  var lp=makeLabel('S POWERS CT'); lp.position.set(-133, elev(-133,84)+7, 84);
-  lp.material.opacity=.85; scene.add(lp);
-  var lt=makeLabel('TERWILLIGER / TRYON CREEK'); lt.position.set(-158, elev(-158,-34)+9, -34);
+  var l=makeLabel('PURCHASE LOT — 25,281 SF FLAG',true);
+  l.position.set(-15, elev(-15,185)+18, 185); scene.add(l);
+})();
+scene.add(ribbonPath(HOME,2.4,C.homeblue,0.8,true));
+for(var hi2=0;hi2<HOME.length;hi2++){ scene.add(post(HOME[hi2][0],HOME[hi2][1],C.homeblue)); }
+(function(){
+  var l=makeLabel('YOUR LOT — 11520 S ELYSIUM · 52,621 SF',true);
+  l.position.set(235, elev(235,235)+20, 235); scene.add(l);
+})();
+
+/* existing home — real footprint (PortlandMaps) + cross-hip roof per 2024 aerial */
+(function(){
+  var lo=ringMinElev(HOME_BLDG), hi=ringMaxElev(HOME_BLDG);
+  var eave=lo-0.5+(hi-lo)+9;
+  scene.add(polyPrism(HOME_BLDG, lo-0.5, (hi-lo)+9, C.exist));
+  var wingA=gableBlock(40,122,0.6,8.5,C.exist,0x6E6A64);
+  wingA.position.set(205,eave,180); wingA.rotation.y=2.18; scene.add(wingA);
+  var wingB=gableBlock(36,85,0.6,8,C.exist,0x6E6A64);
+  wingB.position.set(207.5,eave,184); wingB.rotation.y=0.558; scene.add(wingB);
+  var l=makeLabel('YOUR HOME — ACTUAL FOOTPRINT');
+  l.position.set(206, eave+22, 185); scene.add(l);
+  /* neighbor house 11605 S Elysium (current owner of the flag lot) */
+  var lo2=ringMinElev(NBR_BLDG), hi2=ringMaxElev(NBR_BLDG);
+  scene.add(polyPrism(NBR_BLDG, lo2-0.5, (hi2-lo2)+11, 0xD8D2C2));
+  var l2=makeLabel('11605 (SELLER)'); l2.position.set(84, lo2+(hi2-lo2)+22, 333); l2.material.opacity=.8; scene.add(l2);
+})();
+
+/* context: Terwilliger / Tryon Creek fall away to the southwest */
+(function(){
+  var lt=makeLabel('TERWILLIGER / TRYON CREEK →'); lt.position.set(-122, elev(-122,-40)+10, -40);
   lt.material.opacity=.8; scene.add(lt);
 })();
 
-/* perimeter firs */
-var FIRS=[[78,108,30],[82,150,34],[76,196,28],[80,232,33],[40,238,30],[-6,240,26],
-          [-52,236,31],[-84,214,27],[-86,120,24],[58,100,22],[-100,70,26],[-30,-30,20],[30,-30,22]];
+/* trees placed from 2024 aerial canopy detection */
 for(var i=0;i<FIRS.length;i++){ scene.add(fir(FIRS[i][0],FIRS[i][1],FIRS[i][2])); }
 
 /* elevation tick labels on index contours (subtle) */
 (function(){
-  var t1=makeLabel('EL 350 FT'); t1.position.set(-108, elev(-108,40)+5, 40); t1.material.opacity=.8; scene.add(t1);
-  var t2=makeLabel('EL 370 FT'); t2.position.set(-108, elev(-108,190)+5, 190); t2.material.opacity=.8; scene.add(t2);
+  function tick(x,z){
+    var l=makeLabel('EL '+Math.round(elevAbs(x,z))+' FT');
+    l.position.set(x, elev(x,z)+5, z); l.material.opacity=.8; scene.add(l);
+  }
+  tick(-60,20); tick(-60,200); tick(230,150); tick(150,320);
 })();
 
 /* ---------- option groups ---------- */
@@ -398,15 +517,15 @@ var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new TH
 Object.keys(groups).forEach(function(k){ scene.add(groups[k]); });
 
 function steppedHouse(target){
-  /* lower mass (entry/daylight) + upper mass climbing the hill */
-  var p1=padFor(-16,116,30,26); target.add(p1.slab);
+  /* lower mass (entry/daylight) + upper mass climbing the hill (uphill = east, +z) */
+  var p1=padFor(-10,148,30,26); target.add(p1.slab);
   var m1=gableBlock(30,26,10.5,6,C.wall,C.roof);
-  m1.position.set(-16,p1.e,116); target.add(m1);
-  var p2=padFor(-6,146,34,32,7.5); target.add(p2.slab);
-  target.add(retWall(-23,11,162,p2.e));
+  m1.position.set(-10,p1.e,148); target.add(m1);
+  var p2=padFor(0,180,34,32,7.5); target.add(p2.slab);
+  target.add(retWall(-17,17,196,p2.e));
   var m2=gableBlock(34,32,11.5,7.5,C.wall2,C.roof);
-  m2.position.set(-6,p2.e,146); target.add(m2);
-  var lbl=makeLabel('HOUSE ~2,400 SF'); lbl.position.set(-10,p2.e+32,132); target.add(lbl);
+  m2.position.set(0,p2.e,180); target.add(m2);
+  var lbl=makeLabel('HOUSE ~2,400 SF'); lbl.position.set(-5,p2.e+32,164); target.add(lbl);
   return p1;
 }
 function aduCottage(target,cx,cz,name){
@@ -416,52 +535,59 @@ function aduCottage(target,cx,cz,name){
   var l=makeLabel(name||'ADU 800 SF'); l.position.set(cx,p.e+24,cz); target.add(l);
 }
 
-/* A — house + ADU */
+/* A — house + ADU (ADU holds the pole junction) */
 steppedHouse(groups.A);
-aduCottage(groups.A,-24,98);
+aduCottage(groups.A,52,130);
 
 /* B — duplex, stacked walkout */
 (function(g){
-  var p=padFor(0,132,62,28); g.add(p.slab);
-  g.add(retWall(-30,30,146,p.e));
+  var p=padFor(-5,152,62,28); g.add(p.slab);
+  g.add(retWall(-35,25,166,p.e));
   var lower=new THREE.Mesh(new THREE.BoxGeometry(62,9,28),
       new THREE.MeshLambertMaterial({color:C.wall2}));
-  lower.position.set(0,p.e+4.5,132); lower.castShadow=true; g.add(lower);
+  lower.position.set(-5,p.e+4.5,152); lower.castShadow=true; g.add(lower);
   var upper=gableBlock(62,28,9.5,7,C.wall,C.roof);
-  upper.position.set(0,p.e+9,132); g.add(upper);
-  var l=makeLabel('DUPLEX ~3,000 SF · 2 UNITS'); l.position.set(0,p.e+36,132); g.add(l);
-  var l2=makeLabel('WALKOUT UNIT FACES STREET'); l2.position.set(0,p.e+6,110);
+  upper.position.set(-5,p.e+9,152); g.add(upper);
+  var l=makeLabel('DUPLEX ~3,000 SF · 2 UNITS'); l.position.set(-5,p.e+36,152); g.add(l);
+  var l2=makeLabel('WALKOUT UNIT FACES WEST (DOWNHILL)'); l2.position.set(-5,p.e+6,130);
   l2.material.opacity=.85; g.add(l2);
 })(groups.B);
 
 /* C — house only + future ADU pad */
 steppedHouse(groups.C);
 (function(g){
-  g.add(drapedLoop([[-34,86],[-14,86],[-14,112],[-34,112]], C.copper, true, 0.9));
-  var l=makeLabel('FUTURE ADU PAD'); l.position.set(-24, elev(-24,99)+12, 99); g.add(l);
+  g.add(drapedLoop([[42,117],[62,117],[62,143],[42,143]], C.copper, true, 0.9));
+  var l=makeLabel('FUTURE ADU PAD'); l.position.set(52, elev(52,130)+12, 130); g.add(l);
 })(groups.C);
 
 /* D — consolidated compound */
 (function(g){
-  /* former lot line, now internal (dashed) */
-  var pts=[]; for(var z=105;z<=245;z+=8){ pts.push(new THREE.Vector3(LOT.bodyX1, elev(LOT.bodyX1,z)+0.9, z)); }
+  /* shared lot line, now internal (dashed) */
+  var pts=[];
+  for(var s=0;s<SHARED.length-1;s++){
+    var a=SHARED[s],b=SHARED[s+1],n2=Math.max(2,Math.round(Math.hypot(b[0]-a[0],b[1]-a[1])/8));
+    for(var q2=0;q2<=n2;q2++){
+      var t=q2/n2, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
+      pts.push(new THREE.Vector3(x,elev(x,z)+0.9,z));
+    }
+  }
   g.add(lineFromPts(pts,0x6B6B64,true));
-  var l0=makeLabel('FORMER LINE — CONSOLIDATED'); l0.position.set(LOT.bodyX1, elev(LOT.bodyX1,175)+16, 175); g.add(l0);
+  var l0=makeLabel('SHARED LINE — CONSOLIDATED'); l0.position.set(70, elev(70,165)+16, 165); g.add(l0);
 
-  /* workshop + studio near shared line */
-  var pw=padFor(52,150,30,38); g.add(pw.slab);
-  g.add(retWall(37,67,171,pw.e));
+  /* workshop + studio near the shared line */
+  var pw=padFor(30,172,30,38); g.add(pw.slab);
+  g.add(retWall(15,45,193,pw.e));
   var shop=gableBlock(30,38,17,8,C.wall2,C.roofCopper);
-  shop.position.set(52,pw.e,150); g.add(shop);
-  var lw=makeLabel('WORKSHOP + STUDIO ADU'); lw.position.set(52,pw.e+34,150); g.add(lw);
+  shop.position.set(30,pw.e,172); g.add(shop);
+  var lw=makeLabel('WORKSHOP + STUDIO ADU'); lw.position.set(30,pw.e+34,172); g.add(lw);
 
-  /* sport court terraced into the bench */
-  var cw=34, cd=62, ccx=18, ccz=134;
-  var pc=padFor(ccx,ccz,cw,cd); 
+  /* sport court terraced into the slope */
+  var cw=34, cd=62, ccx=-45, ccz=190;
+  var pc=padFor(ccx,ccz,cw,cd);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(cw,1.2,cd),
       new THREE.MeshLambertMaterial({color:C.court}));
   slab.position.set(ccx,pc.e-0.3,ccz); slab.receiveShadow=true; g.add(slab);
-  var mark=[]; var mx0=ccx-cw/2+4,mx1=ccx+cw/2-4,mz0=ccz-cd/2+4,mz1=ccz+cd/2-4;
+  var mx0=ccx-cw/2+4,mx1=ccx+cw/2-4,mz0=ccz-cd/2+4,mz1=ccz+cd/2-4;
   var mpts=[new THREE.Vector3(mx0,pc.e+0.35,mz0),new THREE.Vector3(mx1,pc.e+0.35,mz0),
             new THREE.Vector3(mx1,pc.e+0.35,mz1),new THREE.Vector3(mx0,pc.e+0.35,mz1),
             new THREE.Vector3(mx0,pc.e+0.35,mz0)];
@@ -469,12 +595,12 @@ steppedHouse(groups.C);
   g.add(retWall(ccx-cw/2-1,ccx+cw/2+1,ccz+cd/2+2,pc.e));
   var lc=makeLabel('SPORT COURT (TERRACED)'); lc.position.set(ccx,pc.e+12,ccz); g.add(lc);
 
-  /* ADU in the quiet south-rear corner, away from both streets and the house */
-  aduCottage(g,-58,212,'ADU — QUIET CORNER');
+  /* ADU in the quiet south corner, away from both streets and the house */
+  aduCottage(g,-80,218,'ADU — QUIET CORNER');
 
-  /* garden path from the owners' home down to the workshop */
-  var pth=[]; for(var t=0;t<=12;t++){
-    var u=t/12, x=98-u*42, z=184-u*30+Math.sin(u*Math.PI)*5;
+  /* garden path from the house down to the workshop */
+  var pth=[]; for(var t2=0;t2<=12;t2++){
+    var u=t2/12, x=150-u*105, z=205-u*28+Math.sin(u*Math.PI)*6;
     pth.push(new THREE.Vector3(x,elev(x,z)+0.8,z));
   }
   g.add(lineFromPts(pth,0x8B8677,true));
@@ -492,7 +618,7 @@ var INFO={
      b:'The same stepped house, with the pole-side pad held clear (dashed) for a future ADU. Simplest permit path now; income can grow later.',
      c:['~2,400 sf','$1.10–1.35M excl. land','$4.8–5.8K/mo','Simplest build']},
   D:{t:'Option D — Consolidated compound',
-     b:'Your lot and this one merged (dashed former line). The workshop + studio hugs your side for daily access; the court terraces into the mid-slope bench behind a retaining wall; the ADU takes the quiet upper corner. Fully phase-able.',
+     b:'Your lot and this one merged (dashed shared line). The workshop + studio hugs your side for daily access; the court terraces into the mid-slope bench behind a retaining wall; the ADU takes the quiet upper corner. Fully phase-able.',
      c:['$0.8–1.1M full scope','ADU $2.0–2.4K/mo','Only lawful STR route','Lifestyle path']}
 };
 var current='A';
@@ -514,13 +640,16 @@ function setOption(k){
 });
 setOption('A');
 
+document.getElementById('legend-elev').textContent =
+  'street ~' + Math.round(REF) + ' ft · flag lot ' + Math.round(ringMinElev(FLAG)+REF) + '–' + Math.round(ringMaxElev(FLAG)+REF) + ' ft';
+
 /* ---------- custom orbit controls ---------- */
-var target=new THREE.Vector3(-6, elev(-6,150)+12, 150);
-var sph={theta:-2.55, phi:1.02, r:330};
+var target=new THREE.Vector3(30, elev(30,185)+12, 185);
+var sph={theta:-2.55, phi:1.02, r:430};
 var autoSpin = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function applyCam(){
   sph.phi=Math.max(0.22,Math.min(1.38,sph.phi));
-  sph.r=Math.max(120,Math.min(720,sph.r));
+  sph.r=Math.max(140,Math.min(950,sph.r));
   camera.position.set(
     target.x + sph.r*Math.sin(sph.phi)*Math.sin(sph.theta),
     target.y + sph.r*Math.cos(sph.phi),

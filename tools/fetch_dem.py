@@ -35,9 +35,11 @@ LAT0, LON0 = 45.4413056, -122.6696944   # owner's center pin
 CX, CZ = -2.5, 170.0                    # same point in local model feet
 
 # --- sampling grid (local feet) ---------------------------------------
-X0, Z0 = -190.0, -45.0
-DX, DZ = 17.0, 17.25
-NX, NZ = 21, 21                         # 441 points
+# Extent widened to cover the full corrected site: both taxlots (flag lot +
+# owner's home lot), the Northgate cul-de-sac, and Elysium Pl frontage.
+X0, Z0 = -140.0, -80.0
+DX, DZ = 17.0, 17.5
+NX, NZ = 29, 29                         # 841 points
 
 ENDPOINT = "https://epqs.nationalmap.gov/v1/json"
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "dem_grid.json")

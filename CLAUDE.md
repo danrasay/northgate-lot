@@ -19,12 +19,26 @@ Deliverables are a written study, a one-page comparison, and two interactive
   "Portland / Multnomah" and **City Council District 4** — county rules do
   not apply. This is the pivotal regulatory fact.
 - **Zoning R20**, no `c` / `p` / `z` overlay letters observed.
-- **Flag geometry**: the pole meets the S Northgate Ave public right of way;
-  the flag body sits behind neighboring rear yards. The owners' home is
-  **northeast** of the body. S Powers Ct wraps the south. Ground eases away
-  southwest toward Terwilliger and Tryon Creek.
-- **Terrain rises away from the street**, grades vary. Street at the pole is
-  roughly 342–344 ft; the northeast rear reaches roughly 382 ft.
+- **Flag geometry (corrected — see Data provenance)**: the 15-ft × 141-ft pole
+  is on the **north** side of the flag body, meeting **S Northgate Ave's
+  cul-de-sac** (bulb R=28.5 ft, per the plat) — not a straight street frontage.
+  The owners' home (**11520 S Elysium Pl**) sits northeast of the flag body,
+  across the shared taxlot line. **S Elysium Pl**, not S Powers Ct, is the
+  real cross street (S Powers Ct does not border this site — that was an
+  error reading the DOGAMI annotation). Ground eases away southwest toward
+  Terwilliger and Tryon Creek.
+- **Seller / current owner of record of the flag lot**: the neighbor at
+  **11605 S Elysium**. Flag lot is Partition Plat 2004-35, Lot 3.
+- **Terrain**: cul-de-sac apron ≈336 ft; flag body ≈336–387 ft; the owners'
+  home sits ≈392–403 ft. USGS 3DEP lidar, live in both models.
+- **Driveway grade — corrected and materially worse than earlier estimated**:
+  the real pole easement (apron to where it enters the flag body) averages
+  **~22%** with a sustained pinch near **~37%** — both over Portland's ~20%
+  driveway ceiling, not just borderline. See `models/driveway.html` Option 1.
+  Cutting the profile (Option 2) brings the *average* back under the cap but
+  not the pinch. Only extending the drive past the legal easement onto the
+  owner's own land in the flag body (Options 3/4) gets a genuinely gentle
+  (~7–8%) grade — at the cost of a much longer run.
 - **DOGAMI shallow landslide susceptibility: LOW** on both parcels.
 - **Utilities**: public water and sewer available at the boundary (not
   connected; water hook-up charge unknown); electric, gas, phone, internet
@@ -32,6 +46,24 @@ Deliverables are a written study, a one-page comparison, and two interactive
 - **Survey**: Record of Survey 68582, filed May 2023 (Centerline Concepts).
   The parcel was assembled from West Palatine Ridge lots, part of Palatine
   Hill Block 63, a partition parcel, and a 1947 street vacation.
+
+## Data provenance
+
+The site facts above (street/cul-de-sac geometry, addresses, seller, plat
+number, driveway grade) were corrected in 2026-07 against real GIS pulls,
+replacing earlier readings of the owner's annotated DOGAMI map:
+
+| Data | Source |
+|---|---|
+| Terrain (29×29 grid, `tools/fetch_dem.py`) | USGS 3DEP EPQS `epqs.nationalmap.gov/v1/json` |
+| Taxlots, building footprints, street centerlines, 2019 lidar contours | PortlandMaps ArcGIS (`Public/Taxlots`, `Public/Basemap_Color_Buildings`, `Public/CGIS_Layers` MapServer layers) |
+| Aerial photo (`data/aerial.jpg`) | PortlandMaps Summer 2024 orthophoto |
+
+All of the above (except the freshly-fetched DEM grid) live in
+`data/site_vectors.json`, fetched at runtime by both models alongside
+`data/dem_grid.json`. This still isn't a substitute for the preliminary
+title report (open item below) — it resolves the street/geometry confusion
+but not the undisclosed easement.
 
 ## Four development options
 
@@ -45,32 +77,38 @@ Deliverables are a written study, a one-page comparison, and two interactive
 ## Repo map
 
 ```
-index.html            hub page; contour hero drawn from the shared elevation fn
-models/massing.html   4 site options (A–D), toggleable
-models/driveway.html  4 pole driveway options, grades computed live
+index.html            hub page; contour hero drawn from its own analytic elevation fn (not yet on real data — see below)
+models/massing.html   4 site options (A–D), real taxlots/buildings/streets/contours, AERIAL/PLAN toggle
+models/driveway.html  4 pole driveway options on the real easement, grades computed live
 docs/*.pdf            written study + one-page comparison
 tools/fetch_dem.py    USGS 3DEP elevation fetch -> data/dem_grid.json
 tools/build_*.py      reportlab generators for the two PDFs
-data/                 dem_grid.json lands here
+data/dem_grid.json    terrain grid (29x29, fetched by tools/fetch_dem.py)
+data/site_vectors.json  real taxlots, buildings, streets, cul-de-sac, driveway pole, 2ft/10ft contours (see Data provenance)
+data/aerial.jpg        2024 PortlandMaps orthophoto, pre-aligned to site_vectors.json's `ext`
 ```
+
+## Recently completed
+
+- **Lidar terrain rebuild** (both models now fetch `data/dem_grid.json` at
+  runtime and sample it via Catmull-Rom bicubic interpolation — no more
+  analytic terrain).
+- **GIS data correction** (2026-07): replaced DOGAMI-map-derived approximate
+  geometry with real PortlandMaps/lidar-survey data across both models. See
+  "Data provenance" above and the corrected site facts. This also resolved
+  open item 4 below (legal-lot confirmation) via the plat number.
 
 ## Open work, highest value first
 
-1. **Lidar terrain rebuild.** Run `python3 tools/fetch_dem.py`, then replace
-   the analytic `elev()` in both models with sampling from `data/dem_grid.json`
-   using Catmull-Rom bicubic interpolation. Set `REF = elevAbs(-55, 0)` (street
-   at the pole) so scene geometry stays near y=0. Update the contour ramp range,
-   the header badge to "USGS 3DEP lidar terrain," the legend numbers, and make
-   the EL tick labels dynamic. **This fetch failed in the Claude.ai sandbox
-   because of its egress proxy — it should work fine here.**
-2. **Re-verify driveway grades** after the rebuild. On the current approximate
-   terrain, Option 1 (follow natural grade) computes past Portland's ~20%
-   driveway ceiling; a shallower real pole could make it viable again.
-3. **Preliminary title report**, when the owners receive it. The seller
+1. **Preliminary title report**, when the owners receive it. The seller
    disclosed an easement beyond utility/drainage but never attached the
    instrument. Fold findings into the report and revise the risk register.
-4. **Legal-lot confirmation** — more than one lot of record would improve
-   every option.
+   The GIS data correction above did not touch this — it fixed the street/
+   geometry confusion, not the undisclosed easement.
+2. **`index.html`'s hero contour** still uses its own standalone analytic
+   `elevAbs()`, never converted to fetch `data/dem_grid.json` like the two
+   models. Low priority (decorative hero, not a finding), but it now
+   describes different, less accurate terrain than either model.
 
 ## Conventions
 

@@ -71,7 +71,7 @@
 
 <header>
   <h1>S Northgate — Pole Driveway Options</h1>
-  <span class="tag">Grades computed live · terrain approx.</span>
+  <span class="tag">USGS 3DEP lidar · real pole easement · grades computed live</span>
 </header>
 
 <div id="hint">drag to orbit · pinch or scroll to zoom</div>
@@ -80,7 +80,7 @@
   <span class="sw" style="background:#B3AC9C"></span>retaining wall<br>
   <span class="sw" style="background:#6E7F5E"></span>planter / swale<br>
   <span class="sw" style="background:#555049"></span>trench drain<br>
-  street ~344 ft at the apron
+  <span id="legend-elev">street elevation loading…</span>
 </div>
 
 <div id="panel">
@@ -100,47 +100,59 @@
     </div>
     <div id="chips"></div>
   </div>
-  <div id="foot">Grades are computed from the drawn geometry over the current approximate terrain —
-  they will shift with the lidar rebuild. Driveway only; utility trenching runs alongside and is budgeted
+  <div id="foot">Grades are computed live from the drawn geometry over USGS 3DEP lidar terrain, following the
+  real 15-ft pole easement (PortlandMaps taxlot). Utility trenching runs alongside and is budgeted
   separately. Schematic, not engineering.</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
-(function(){
+(async function(){
 "use strict";
 
 var C = {
   copper:0xB0713A, sky:0xE9EEE4, conc:0xD8D4CA, conc2:0xCFCABE,
   wallRet:0xB3AC9C, planter:0x6E7F5E, drain:0x555049, pad:0xCEC8B8,
-  trunk:0x6B5138, fir1:0x3F5A43, fir2:0x4C6B4E, exist:0xCFC9B8, roof:0x6E7268
+  trunk:0x6B5138, fir1:0x3F5A43, fir2:0x4C6B4E, exist:0xCFC9B8, roof:0x6E7268, drive:0xA79F90
 };
 
 /* ---------- terrain: identical function to the massing model ---------- */
-var CTRL = [[-60,-2],[0,0],[40,6.5],[95,14],[150,18],[185,26],[215,33],[245,36],[320,38.5]];
-function baseElev(z){
-  if (z <= CTRL[0][0]) return CTRL[0][1];
-  for (var i=0;i<CTRL.length-1;i++){
-    var a=CTRL[i], b=CTRL[i+1];
-    if (z <= b[0]){ var t=(z-a[0])/(b[0]-a[0]); t=t*t*(3-2*t); return a[1]+(b[1]-a[1])*t; }
-  }
-  return CTRL[CTRL.length-1][1];
+var DEM = null, REF = 0, RAMP_LO = 310, RAMP_HI = 380;
+function demSample(cx,cz){
+  cx = Math.max(0, Math.min(DEM.nx-1, cx));
+  cz = Math.max(0, Math.min(DEM.nz-1, cz));
+  return DEM.e[cz][cx];
 }
-function gauss(x,z,cx,cz,s){ var dx=x-cx,dz=z-cz; return Math.exp(-(dx*dx+dz*dz)/(2*s*s)); }
+function catmullRom(p0,p1,p2,p3,t){
+  var t2=t*t, t3=t2*t;
+  return 0.5*((2*p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t2 + (-p0+3*p1-3*p2+p3)*t3);
+}
+/* Absolute elevation in feet, bicubic-sampled off data/dem_grid.json (USGS 3DEP). */
 function elevAbs(x,z){
-  var e = 344 + baseElev(z);
-  var f = Math.max(0, Math.min(1, z/240));
-  e += 2.1*Math.sin((x+40)/48)*f;
-  e += 2.5*Math.max(-1,Math.min(1,x/130))*(0.35+0.65*f);
-  e += 2.6*gauss(x,z, 48,158, 52);
-  e -= 2.0*gauss(x,z,-58,192, 55);
-  e -= 7.0*gauss(x,z,-175,-25, 75);
-  return e;
+  var gx=(x-DEM.x0)/DEM.dx, gz=(z-DEM.z0)/DEM.dz;
+  var ix=Math.floor(gx), iz=Math.floor(gz), tx=gx-ix, tz=gz-iz;
+  var rows=[];
+  for (var j=-1;j<=2;j++){
+    rows.push(catmullRom(demSample(ix-1,iz+j),demSample(ix,iz+j),demSample(ix+1,iz+j),demSample(ix+2,iz+j),tx));
+  }
+  return catmullRom(rows[0],rows[1],rows[2],rows[3],tz);
 }
-function elev(x,z){ return elevAbs(x,z) - 344; }
+/* Scene geometry stays near y=0; only labels and contours use absolute feet. */
+function elev(x,z){ return elevAbs(x,z) - REF; }
 
-var POLE = {x0:-67, x1:-43, z0:0, z1:95};
-var EXT = {x0:-150, x1:70, z0:-42, z1:176};
+var fetched = await Promise.all([fetch('../data/dem_grid.json'), fetch('../data/site_vectors.json')]);
+if (!fetched[0].ok) throw new Error('dem_grid.json fetch failed: ' + fetched[0].status);
+if (!fetched[1].ok) throw new Error('site_vectors.json fetch failed: ' + fetched[1].status);
+var jsons = await Promise.all(fetched.map(function(r){ return r.json(); }));
+DEM = jsons[0];
+var SITE = jsons[1];
+REF = elevAbs(SITE.ref_point.x, SITE.ref_point.z);   /* driveway apron at the cul-de-sac */
+
+var FLAG=SITE.taxlots.flag, NORTHGATE=SITE.streets.northgate, CULDESAC=SITE.streets.cul_de_sac;
+var POLE=SITE.driveway_pole, CONT10=SITE.contours_10ft, CONT2=SITE.contours_2ft;
+var EXT = {x0:-50, x1:150, z0:-95, z1:205};   /* tight crop around the pole, cul-de-sac, and landing area */
+
+document.getElementById('legend-elev').textContent = 'street ~' + Math.round(REF) + ' ft at the apron';
 
 /* ---------- scaffolding ---------- */
 var scene = new THREE.Scene();
@@ -159,8 +171,8 @@ var sun = new THREE.DirectionalLight(0xFFF6E4, .82);
 sun.position.set(-170, 250, -110);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
-sun.shadow.camera.left=-190; sun.shadow.camera.right=190;
-sun.shadow.camera.top=190; sun.shadow.camera.bottom=-190;
+sun.shadow.camera.left=-200; sun.shadow.camera.right=200;
+sun.shadow.camera.top=200; sun.shadow.camera.bottom=-200;
 sun.shadow.camera.far=900; sun.shadow.bias=-0.0004;
 scene.add(sun);
 
@@ -179,14 +191,11 @@ function contourTexture(){
     var z = EXT.z0 + (1-j/(H-1))*(EXT.z1-EXT.z0);
     for(var i=0;i<W;i++){
       var x = EXT.x0 + (i/(W-1))*(EXT.x1-EXT.x0);
-      var e = elevAbs(x,z), col;
-      if (z < -8){ col=[142,138,128]; }
-      else {
-        col = ramp(Math.max(0,Math.min(1,(e-338)/40)));
-        var m2=Math.abs(((e/2)%1+1)%1-0.5), m10=Math.abs(((e/10)%1+1)%1-0.5);
-        if (m10>0.5-0.045){ col=[176,113,58]; }
-        else if (m2>0.5-0.055){ col=[col[0]*0.72,col[1]*0.72,col[2]*0.72]; }
-      }
+      var e = elevAbs(x,z);
+      var col = ramp(Math.max(0,Math.min(1,(e-RAMP_LO)/(RAMP_HI-RAMP_LO))));
+      var m2=Math.abs(((e/2)%1+1)%1-0.5), m10=Math.abs(((e/10)%1+1)%1-0.5);
+      if (m10>0.5-0.045){ col=[176,113,58]; }
+      else if (m2>0.5-0.055){ col=[col[0]*0.72,col[1]*0.72,col[2]*0.72]; }
       var k=(j*W+i)*4; d[k]=col[0]; d[k+1]=col[1]; d[k+2]=col[2]; d[k+3]=255;
     }
   }
@@ -200,10 +209,14 @@ function contourTexture(){
   var geo=new THREE.PlaneGeometry(w,dpt,seg,seg);
   geo.rotateX(-Math.PI/2);
   var p=geo.attributes.position;
+  var lo=Infinity, hi=-Infinity;
   for(var i=0;i<p.count;i++){
     var x=p.getX(i)+(EXT.x0+EXT.x1)/2, z=p.getZ(i)+(EXT.z0+EXT.z1)/2;
-    p.setY(i, elev(x,z));
+    var eA=elevAbs(x,z);
+    if(eA<lo) lo=eA; if(eA>hi) hi=eA;
+    p.setY(i, eA-REF);
   }
+  RAMP_LO=Math.floor(lo/10)*10; RAMP_HI=Math.ceil(hi/10)*10;
   geo.computeVertexNormals();
   var m=new THREE.Mesh(geo,new THREE.MeshLambertMaterial({map:contourTexture()}));
   m.position.set((EXT.x0+EXT.x1)/2,0,(EXT.z0+EXT.z1)/2);
@@ -218,18 +231,28 @@ function lineFrom(pts,color,dashed){
                    : new THREE.LineBasicMaterial({color:color});
   var l=new THREE.Line(g,mat); if(dashed) l.computeLineDistances(); return l;
 }
-function drapedLoop(xz,color,dashed,lift){
-  var pts=[];
-  for(var i=0;i<xz.length;i++){
-    var a=xz[i], b=xz[(i+1)%xz.length];
-    var segs=Math.max(2,Math.round(Math.hypot(b[0]-a[0],b[1]-a[1])/6));
-    for(var s=0;s<segs;s++){
+function ribbonPath(pts,w2,color,lift,close){
+  var P=pts.slice(); if(close) P.push(pts[0]);
+  var verts=[],idx=[],n=0;
+  for(var i=0;i<P.length-1;i++){
+    var a=P[i],b=P[i+1],len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    if(len<0.01) continue;
+    var ux=(b[0]-a[0])/len, uz=(b[1]-a[1])/len, px=-uz, pz=ux;
+    var segs=Math.max(1,Math.round(len/7));
+    for(var s=0;s<=segs;s++){
       var t=s/segs, x=a[0]+(b[0]-a[0])*t, z=a[1]+(b[1]-a[1])*t;
-      pts.push(new THREE.Vector3(x, elev(x,z)+(lift||0.7), z));
+      var y=elev(x,z)+(lift||0.55);
+      verts.push(x+px*w2/2,y,z+pz*w2/2, x-px*w2/2,y,z-pz*w2/2);
+      if(s<segs){ var k=n+s*2; idx.push(k,k+1,k+2, k+1,k+3,k+2); }
     }
+    n+=(segs+1)*2;
   }
-  pts.push(pts[0].clone());
-  return lineFrom(pts,color,dashed);
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:color,side:THREE.DoubleSide}));
+  m.receiveShadow=true;
+  return m;
 }
 function makeLabel(text,big){
   var pad=14, fs=big?46:36, cv=document.createElement('canvas'), g=cv.getContext('2d');
@@ -337,37 +360,82 @@ function stats(pts){
   }
   return {max:maxG, avg:Math.abs(pts[pts.length-1][2]-pts[0][2])/S, len:S};
 }
+/* subdivide a polyline into ~step-ft segments */
+function densify(poly,step){
+  var out=[];
+  for(var i=0;i<poly.length-1;i++){
+    var a=poly[i], b=poly[i+1], L=Math.hypot(b[0]-a[0],b[1]-a[1]), n=Math.max(1,Math.round(L/step));
+    for(var s=0;s<n;s++){ var t=s/n; out.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]); }
+  }
+  out.push(poly[poly.length-1]);
+  return out;
+}
+function bezier(p0,p1,p2,n){
+  var out=[];
+  for(var i=0;i<=n;i++){
+    var t=i/n, u=1-t;
+    out.push([u*u*p0[0]+2*u*t*p1[0]+t*t*p2[0], u*u*p0[1]+2*u*t*p1[1]+t*t*p2[1]]);
+  }
+  return out;
+}
 
-/* ---------- shared context ---------- */
-scene.add(drapedLoop([[POLE.x0,POLE.z0],[POLE.x1,POLE.z0],[POLE.x1,POLE.z1],
-                      [55,POLE.z1],[55,168],[-92,168],[-92,POLE.z1],[POLE.x0,POLE.z1]],
-                     C.copper,false,1.0));
+/* ---------- real surveyed contour vectors (context) ---------- */
 (function(){
-  var l=makeLabel('S NORTHGATE AVE',true); l.position.set(-58,4.5,-22); scene.add(l);
-  var f=makeLabel('FLAG BODY'); f.position.set(6,elev(6,150)+11,150);
+  var mat2=new THREE.LineBasicMaterial({color:0x6E7A66,transparent:true,opacity:0.5});
+  var mat10=new THREE.LineBasicMaterial({color:0xB0713A});
+  function draw(arr,mat,lift){
+    for(var i=0;i<arr.length;i++){
+      var fl=arr[i][1], pts=[];
+      for(var k2=0;k2<fl.length-2;k2+=2){
+        var x1=fl[k2],z1=fl[k2+1],x2=fl[k2+2],z2=fl[k2+3];
+        var n=Math.max(1,Math.round(Math.hypot(x2-x1,z2-z1)/9));
+        for(var s=0;s<n;s++){
+          var t=s/n, x=x1+(x2-x1)*t, z=z1+(z2-z1)*t;
+          pts.push(new THREE.Vector3(x,elev(x,z)+lift,z));
+        }
+      }
+      pts.push(new THREE.Vector3(fl[fl.length-2],
+        elev(fl[fl.length-2],fl[fl.length-1])+lift, fl[fl.length-1]));
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));
+    }
+  }
+  draw(CONT2,mat2,0.35);
+  draw(CONT10,mat10,0.5);
+})();
+
+/* ---------- shared context: real cul-de-sac, street, lot line, trees ---------- */
+(function(){
+  scene.add(ribbonPath(NORTHGATE,24,C.drive,0.45));
+  var R=CULDESAC.r, segs=40, cx=CULDESAC.cx, cz=CULDESAC.cz;
+  var verts=[cx,elev(cx,cz)+0.5,cz], idx=[];
+  for(var s=0;s<=segs;s++){
+    var a=s/segs*Math.PI*2, x=cx+R*Math.cos(a), z=cz+R*Math.sin(a);
+    verts.push(x,elev(x,z)+0.5,z);
+    if(s<segs) idx.push(0,s+1,s+2);
+  }
+  var g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:C.drive,side:THREE.DoubleSide}));
+  m.receiveShadow=true; scene.add(m);
+  var l=makeLabel('S NORTHGATE AVE',true); l.position.set(148,elev(148,-82)+6,-82); scene.add(l);
+  var l3=makeLabel('CUL-DE-SAC · POLE ACCESS'); l3.position.set(cx, elev(cx,cz)+10, cz); l3.material.opacity=.85; scene.add(l3);
+})();
+scene.add(ribbonPath(FLAG,2.4,C.copper,0.8,true));
+(function(){
+  var f=makeLabel('FLAG LOT — 25,281 SF'); f.position.set(20,elev(20,80)+11,80);
   f.material.opacity=.85; scene.add(f);
 })();
-var FIRS=[[-96,60,24],[-100,120,26],[-88,158,25],[-30,164,27],[24,162,26],[52,124,23],
-          [-34,-26,20],[16,-24,22],[-84,16,21],[-24,104,18]];
+var FIRS=[[-8,-30,20],[16,-40,22],[100,20,24],[110,60,26],[100,100,25],[35,155,27],[0,175,26],[-25,190,24]];
 for(var i=0;i<FIRS.length;i++) scene.add(fir(FIRS[i][0],FIRS[i][1],FIRS[i][2]));
 
-/* ---------- geometry constants ---------- */
-var Y_ST = elev(-55,-12);                       /* street/apron elevation */
-var CLX  = -55;                                 /* pole centerline */
-function straightXZ(zEnd){
-  var a=[]; for(var z=-12; z<=zEnd; z+=2) a.push([CLX,z]); return a;
-}
-/* stretch alignment: gentle up the pole, then curve east into the body */
-function stretchXZ(){
-  var a=[], z;
-  for(z=-12; z<=86; z+=2) a.push([CLX,z]);
-  var P0=[CLX,86], P1=[CLX,124], P2=[-6,140];
-  for(var t=0.04;t<=1.0001;t+=0.04){
-    var u=1-t;
-    a.push([u*u*P0[0]+2*u*t*P1[0]+t*t*P2[0], u*u*P0[1]+2*u*t*P1[1]+t*t*P2[1]]);
-  }
-  return a;
-}
+/* ---------- geometry: the real 15-ft pole easement, apron to flag body ---------- */
+var Y_ST = 0;                                    /* apron elevation — REF is anchored here */
+var BASE_XZ = densify(POLE.slice(1), 2);         /* apron (84.16,-27) through the kink to (64,136) */
+var END = POLE[POLE.length-1];                    /* [64,136] — where the legal easement ends */
+/* "stretch" alignment: continue past the easement into the flatter flag-body interior,
+   on land the owner controls outright (not a wider pole) */
+var STRETCH_XZ = BASE_XZ.concat(bezier(END, [20,148], [-15,170], 24).slice(1));
 
 var groups={A:new THREE.Group(),B:new THREE.Group(),C:new THREE.Group(),D:new THREE.Group()};
 Object.keys(groups).forEach(function(k){ scene.add(groups[k]); });
@@ -375,28 +443,26 @@ var STAT={};
 
 /* ===== Option 1 — follow grade ===== */
 (function(g){
-  var xz=straightXZ(112);
-  var pts=buildPath(xz,function(s,S,x,z){ return elev(x,z)+0.35; });
+  var pts=buildPath(BASE_XZ,function(s,S,x,z){ return elev(x,z)+0.35; });
   STAT.A=stats(pts);
   g.add(ribbon(pts,6.5,C.conc,0.12));
-  var e=elev(CLX,112);
+  var e=elev(END[0],END[1]);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(30,1.2,26),
       new THREE.MeshLambertMaterial({color:C.pad}));
-  slab.position.set(-46,e+0.5,122); slab.receiveShadow=true; g.add(slab);
-  var l=makeLabel('PAD AT NATURAL GRADE'); l.position.set(-46,e+13,122); g.add(l);
-  var p=makeLabel('PINCH — STEEPEST 30 FT'); p.position.set(CLX,elev(CLX,46)+11,46); g.add(p);
+  slab.position.set(END[0],e+0.5,END[1]+8); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD AT NATURAL GRADE'); l.position.set(END[0],e+13,END[1]+8); g.add(l);
+  var p=makeLabel('PINCH — STEEPEST STRETCH'); p.position.set(84.16,elev(84.16,85)+11,85); g.add(p);
 })(groups.A);
 
 /* ===== Option 2 — cut & bench ===== */
 (function(g){
-  var xz=straightXZ(112);
-  var yTop=elev(CLX,106)-6.0;
-  var pts=buildPath(xz,(function(){
-    var S=124, L=14, yA=Y_ST+0.015*L;
+  var yTop=elev(END[0],END[1])-6.0;
+  var pts=buildPath(BASE_XZ,(function(){
+    var L=14;
     return function(s,SS){
-      if(s<=L) return Y_ST+0.015*s;
+      if(s<=L) return Y_ST+(0.5/L)*s;
       if(s>=SS-L) return yTop;
-      return yA+(yTop-yA)*(s-L)/(SS-2*L);
+      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(SS-2*L);
     };
   })());
   STAT.B=stats(pts);
@@ -405,38 +471,37 @@ var STAT={};
   wallAlong(pts,7.4,-1,g);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(32,1.2,26),
       new THREE.MeshLambertMaterial({color:C.pad}));
-  slab.position.set(-48,yTop+0.4,120); slab.receiveShadow=true; g.add(slab);
-  var l=makeLabel('PAD CUT ~6 FT LOWER'); l.position.set(-48,yTop+13,120); g.add(l);
-  var w=makeLabel('RETAINING — BOTH SIDES'); w.position.set(-40,elev(-40,64)+9,64); g.add(w);
+  slab.position.set(END[0],yTop+0.4,END[1]+8); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD CUT ~6 FT LOWER'); l.position.set(END[0],yTop+13,END[1]+8); g.add(l);
+  var w=makeLabel('RETAINING — BOTH SIDES'); w.position.set(84.16,elev(84.16,70)+9,70); g.add(w);
 })(groups.B);
 
-/* ===== Option 3 — stretch into the body ===== */
+/* ===== Option 3 — stretch into the flag body ===== */
 (function(g){
-  var xz=stretchXZ();
-  var yTop=elev(-6,140)-5.0;
-  var pts=buildPath(xz,function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; });
+  var landing=STRETCH_XZ[STRETCH_XZ.length-1];
+  var yTop=elev(landing[0],landing[1])-5.0;
+  var pts=buildPath(STRETCH_XZ,function(s,S){ return Y_ST+(yTop-Y_ST)*s/S; });
   STAT.C=stats(pts);
   g.add(ribbon(pts,6.5,C.conc,0.12));
   wallAlong(pts,7.4,1,g);
   var slab=new THREE.Mesh(new THREE.BoxGeometry(34,1.2,28),
       new THREE.MeshLambertMaterial({color:C.pad}));
-  slab.position.set(-4,yTop+0.4,146); slab.receiveShadow=true; g.add(slab);
-  var l=makeLabel('PAD — CURVED APPROACH'); l.position.set(-4,yTop+14,146); g.add(l);
-  var s2=makeLabel('CLIMB CONTINUES IN THE BODY');
-  s2.position.set(-40,elev(-40,116)+10,116); g.add(s2);
+  slab.position.set(landing[0],yTop+0.4,landing[1]); slab.receiveShadow=true; g.add(slab);
+  var l=makeLabel('PAD — CURVED APPROACH'); l.position.set(landing[0],yTop+14,landing[1]); g.add(l);
+  var s2=makeLabel('CLIMB EASES PAST THE EASEMENT');
+  s2.position.set(30,elev(30,150)+10,150); g.add(s2);
 })(groups.C);
 
 /* ===== Option 4 — full treatment ===== */
 (function(g){
-  var xz=stretchXZ();
-  var yTop=elev(-6,140)-5.0;
-  var pts=buildPath(xz,(function(){
+  var landing=STRETCH_XZ[STRETCH_XZ.length-1];
+  var yTop=elev(landing[0],landing[1])-5.0;
+  var pts=buildPath(STRETCH_XZ,(function(){
     var L=16;
     return function(s,S){
-      var yA=Y_ST+0.015*L;
-      if(s<=L) return Y_ST+0.015*s;
+      if(s<=L) return Y_ST+(0.5/L)*s;
       if(s>=S-L) return yTop;
-      return yA+(yTop-yA)*(s-L)/(S-2*L);
+      return (Y_ST+0.5)+(yTop-(Y_ST+0.5))*(s-L)/(S-2*L);
     };
   })());
   STAT.D=stats(pts);
@@ -446,7 +511,7 @@ var STAT={};
   wallAlong(pts,7.4,1,g);
   /* pullout bulge */
   (function(){
-    var i=Math.round(pts.length*0.46), p=pts[i];
+    var i=Math.round(pts.length*0.30), p=pts[i];
     var b=new THREE.Mesh(new THREE.BoxGeometry(9,0.6,20),
         new THREE.MeshLambertMaterial({color:C.conc2}));
     b.position.set(p[0]-9.5,p[2]+0.1,p[1]); b.receiveShadow=true; g.add(b);
@@ -454,55 +519,54 @@ var STAT={};
   })();
   /* flow-through planter along the downhill edge */
   (function(){
-    var seg=pts.slice(6,30).map(function(p){ return [p[0]-9.2,p[1],p[2]-0.5]; });
+    var seg=pts.slice(4,22).map(function(p){ return [p[0]-9.2,p[1],p[2]-0.5]; });
     g.add(ribbon(seg,2.6,C.planter,0.1));
     var l=makeLabel('FLOW-THROUGH PLANTER');
-    l.position.set(seg[10][0],seg[10][2]+8,seg[10][1]); g.add(l);
+    l.position.set(seg[8][0],seg[8][2]+8,seg[8][1]); g.add(l);
   })();
-  /* heated strip zone marker on the steepest stretch */
+  /* heated strip zone marker on the steepest stretch (inherited from the base easement) */
   (function(){
-    var i=Math.round(pts.length*0.30), p=pts[i];
+    var i=Math.round(pts.length*0.18), p=pts[i];
     var l=makeLabel('HEATED STRIP ZONE'); l.position.set(p[0],p[2]+11,p[1]); g.add(l);
   })();
   var slab=new THREE.Mesh(new THREE.BoxGeometry(34,1.2,28),
       new THREE.MeshLambertMaterial({color:C.pad}));
-  slab.position.set(-4,yTop+0.4,146); slab.receiveShadow=true; g.add(slab);
-  var l2=makeLabel('LEVEL TOP LANDING'); l2.position.set(-4,yTop+14,146); g.add(l2);
+  slab.position.set(landing[0],yTop+0.4,landing[1]); slab.receiveShadow=true; g.add(slab);
+  var l2=makeLabel('LEVEL TOP LANDING'); l2.position.set(landing[0],yTop+14,landing[1]); g.add(l2);
 })(groups.D);
 
 /* ---------- always-on street details ---------- */
 (function(){
-  var y=Y_ST;
   var d=new THREE.Mesh(new THREE.BoxGeometry(15,0.7,2.2),
       new THREE.MeshLambertMaterial({color:C.drain}));
-  d.position.set(CLX,y+0.45,-6); scene.add(d);
-  var l=makeLabel('TRENCH DRAIN AT APRON'); l.position.set(CLX,y+7,-6); scene.add(l);
+  d.position.set(84.16,Y_ST+0.45,-20); scene.add(d);
+  var l=makeLabel('TRENCH DRAIN AT APRON'); l.position.set(84.16,Y_ST+7,-8); scene.add(l);
   var m=new THREE.Mesh(new THREE.BoxGeometry(1.4,5,1.4),
       new THREE.MeshLambertMaterial({color:C.wallRet}));
-  m.position.set(-70,y+2.5,-4); m.castShadow=true; scene.add(m);
-  var lm=makeLabel('ADDRESS MARKER'); lm.position.set(-70,y+9,-4);
+  m.position.set(105,Y_ST+2.5,-40); m.castShadow=true; scene.add(m);
+  var lm=makeLabel('ADDRESS MARKER'); lm.position.set(105,Y_ST+9,-40);
   lm.material.opacity=.9; scene.add(lm);
-  for(var z=8; z<=100; z+=23){
+  for(var z=-8; z<=100; z+=23){
     var b=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.6,3.2,7),
         new THREE.MeshLambertMaterial({color:0x5C6157}));
-    b.position.set(-68.5, elev(-68.5,z)+1.6, z); b.castShadow=true; scene.add(b);
+    b.position.set(90.5, elev(90.5,z)+1.6, z); b.castShadow=true; scene.add(b);
   }
 })();
 
 /* ---------- captions ---------- */
 var INFO={
  A:{t:'1 — Follow the natural grade',
-    b:'Pave what is already there: one lane straight up the pole to a pad at natural grade. Cheapest by a wide margin — but on this terrain the pinch mid-run computes past Portland\u2019s roughly 20% driveway ceiling, so as drawn it likely is not permittable. Read it as the baseline the other three are buying their way out of.',
-    c:['$18–28K','broom concrete','no retaining','likely over the grade cap']},
+    b:'Pave the real pole easement as surveyed: one lane straight up from the cul-de-sac apron to a pad at natural grade. Cheapest by a wide margin — but on the real terrain this run comes in well over Portland’s roughly 20% driveway ceiling on both its average and its steepest pinch. As drawn it is very likely not permittable. Read it as the baseline the other three are buying their way out of.',
+    c:['$20–32K','broom concrete','no retaining','over the grade cap — avg. & pinch']},
  B:{t:'2 — Cut and bench (lower the rise)',
-    b:'Walls on both sides let the drive hold one steady grade instead of a pinch, and the pad is cut about six feet into the hill so the drive climbs less. Flat landings top and bottom. You are buying comfort with concrete and truckloads of export.',
-    c:['$38–65K','walls + export','steady grade','flat landings']},
- C:{t:'3 — Stretch the run into the body',
-    b:'Keep the pole gentle and let the climb continue on a curve inside the flag body, where there is width to work with. Longer path, softer grade, far less wall than Option 2 — and the arrival sequence is genuinely nicer.',
-    c:['$32–52K','more paving','one uphill wall','best arrival']},
+    b:'Walls on both sides let the drive hold a steadier grade instead of a hard pinch, and the pad is cut about six feet into the hill. Flat landings top and bottom. The cut brings the average back under Portland’s roughly 20% cap — but the steepest pinch, though much improved, is still just over it. That remaining pinch is what the two retaining walls are buying you out of, not eliminating.',
+    c:['$42–70K','walls + export','avg. under cap, pinch still over','flat landings']},
+ C:{t:'3 — Stretch past the easement, into the flag body',
+    b:'The legal pole easement only runs so far before the terrain forces the issue. This option keeps the pole itself gentle, then continues the climb on a curve onto the owner’s own land inside the flag body, where there is width and gentler ground to work with. Longer path, genuinely softer average grade, far less wall than Option 2.',
+    c:['$48–75K','more paving, longer run','one uphill wall','meaningfully gentler average']},
  D:{t:'4 — Full treatment',
-    b:'Option 3\u2019s alignment plus level landings at both ends, a two-track ribbon that halves the impervious area, a flow-through planter taking the runoff, a midpoint pullout, and a heated strip. Note the honest tradeoff in the numbers: flattening both ends forces the middle stretch steeper than Option 3 — which is exactly where the heated strip goes.',
-    c:['$55–90K','two-track / permeable','planter + pullout','heated strip']}
+    b:'Option 3’s alignment plus level landings at both ends, a two-track ribbon that halves the impervious area, a flow-through planter taking the runoff, a midpoint pullout, and a heated strip over the pinch inherited from the base easement. Flattening both ends forces that pinch section marginally steeper still — which is exactly where the heated strip goes.',
+    c:['$68–108K','two-track / permeable','planter + pullout','heated strip on the pinch']}
 };
 var current='A';
 function fmt(k){
@@ -531,8 +595,8 @@ function setOption(k){
 setOption('A');
 
 /* ---------- orbit ---------- */
-var target=new THREE.Vector3(-42, 6, 68);
-var sph={theta:-2.42, phi:1.03, r:225};
+var target=new THREE.Vector3(50, elev(84,40)+10, 40);
+var sph={theta:-2.35, phi:1.05, r:230};
 var autoSpin=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function applyCam(){
   sph.phi=Math.max(0.20,Math.min(1.40,sph.phi));
