@@ -102,7 +102,7 @@
     <div class="wrap" style="padding:0 18px">
       <div class="eyebrow">Tax account R547474 · Portland OR 97219</div>
       <h1>S Northgate Ave lot study</h1>
-      <p>0.58 acres · flag lot · R20 · rises ~40 ft from the street</p>
+      <p>0.58 acres · flag lot · R20 · <span id="hero-rise">rises across the flag body</span></p>
     </div>
   </div>
 </div>
@@ -122,15 +122,17 @@
     <a class="card" href="models/massing.html">
       <div class="kind">Interactive 3D</div>
       <h3>Site massing model</h3>
-      <p>Four development options on the hillside. Drag to orbit, pinch to zoom, toggle between schemes.</p>
-      <div class="tags"><span class="tag">A–D toggleable</span><span class="tag">contoured terrain</span></div>
+      <p>Six development options on the real taxlot — your actual home and lot line, the seller's house, the real
+      Northgate cul-de-sac, and a PortlandMaps aerial toggle. Drag to orbit, pinch to zoom, toggle between schemes.</p>
+      <div class="tags"><span class="tag">A–F toggleable</span><span class="tag">real GIS data</span><span class="tag">aerial/plan toggle</span></div>
     </a>
 
     <a class="card" href="models/driveway.html">
       <div class="kind">Interactive 3D</div>
       <h3>Pole driveway options</h3>
-      <p>Four alignments up the flag pole, with maximum sustained grade computed live from the drawn geometry.</p>
-      <div class="tags"><span class="tag">live grade readout</span><span class="tag">cut / stretch / accept</span></div>
+      <p>Four alignments up the real 15-ft pole easement. The drive surface is colored by local grade, and max/average
+      grade are computed live from the drawn geometry.</p>
+      <div class="tags"><span class="tag">grade-colored surface</span><span class="tag">cut / stretch / accept</span></div>
     </a>
 
     <a class="card" href="docs/Development_Options_Report.pdf">
@@ -149,7 +151,7 @@
   </section>
 
   <section>
-    <h2>The four options</h2>
+    <h2>The options</h2>
     <table>
       <thead><tr><th></th><th>Scheme</th><th>Why you would pick it</th></tr></thead>
       <tbody>
@@ -157,57 +159,87 @@
         <tr><td class="k">B</td><td>Duplex, hold both units</td><td>Strongest cash flow from the land</td></tr>
         <tr><td class="k">C</td><td>Single rental house</td><td>Simplest build, keeps every option open</td></tr>
         <tr><td class="k">D</td><td>Consolidate into a compound</td><td>Lifestyle, phased spending, and the only lawful short-term-rental route</td></tr>
+        <tr><td class="k">E</td><td>Tiny home + open dog run</td><td>Lowest cost, phase-friendly, smallest cut on the steep pole</td></tr>
+        <tr><td class="k">F</td><td>Court + dwelling, one building</td><td>Tournament tennis interior with an attached ~400 sf dwelling wing — needs a zoning adjustment</td></tr>
       </tbody>
     </table>
+    <p style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--gray);margin-top:8px">
+      Options E and F are newer additions, modeled in 3D but not yet costed in depth in the written report below —
+      A–D are the ones priced out in <a href="docs/Development_Options_Report.pdf">the PDF</a>.</p>
   </section>
 
   <section>
     <h2>What happens next</h2>
     <ol class="next">
-      <li><b>Rebuild the terrain on lidar.</b> Run <code>tools/fetch_dem.py</code> to pull USGS 3DEP elevations, then drive both models from the measured grid instead of the current approximation.</li>
-      <li><b>Re-check the driveway grades.</b> On approximate ground, following natural grade computes past Portland's ~20% ceiling. Real elevations decide whether the cheap option survives.</li>
-      <li><b>Fold in the title report.</b> The seller disclosed an easement beyond utility and drainage but never attached the instrument.</li>
-      <li><b>Confirm legal-lot status.</b> More than one lot of record would improve every option on the table.</li>
+      <li><b>Fold in the title report.</b> The seller disclosed an easement beyond utility and drainage but never attached the instrument. This is the one open item real GIS data can't resolve on its own.</li>
+      <li><b>Update the written report and one-pager.</b> Both PDFs still describe the site from the original DOGAMI-map reading — wrong cross street, and a driveway grade finding that turned out to be better than the corrected number. The 3D models are current; the PDFs are not, yet.</li>
     </ol>
+    <p style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--gray);margin-top:-4px">
+      Already done: terrain rebuilt on USGS 3DEP lidar, taxlots/buildings/streets/contours replaced with real
+      PortlandMaps data, and legal-lot status confirmed (Partition Plat 2004-35, Lot 3).</p>
   </section>
 
   <footer>
     Planning-level study for the owners' internal use. Not legal, tax, investment, or
-    engineering advice. Costs are ranges, grades are computed over approximate terrain,
-    and zoning interpretations need confirmation with the City of Portland.
-    Contours above are drawn from the study's own elevation model, not a survey.
+    engineering advice. Costs are ranges; terrain is USGS 3DEP lidar and grades are computed
+    live from the drawn geometry; zoning interpretations need confirmation with the City of
+    Portland. Contours above are drawn from the same measured elevation grid as both 3D models,
+    not a stand-alone approximation.
   </footer>
 
 </div>
 
 <script>
-(function(){
+(async function(){
   "use strict";
   var cv = document.getElementById('contour');
   var ctx = cv.getContext('2d');
 
-  /* same elevation model the 3D studies use */
-  var CTRL=[[-60,-2],[0,0],[40,6.5],[95,14],[150,18],[185,26],[215,33],[245,36],[320,38.5]];
-  function baseElev(z){
-    if(z<=CTRL[0][0]) return CTRL[0][1];
-    for(var i=0;i<CTRL.length-1;i++){
-      var a=CTRL[i], b=CTRL[i+1];
-      if(z<=b[0]){ var t=(z-a[0])/(b[0]-a[0]); t=t*t*(3-2*t); return a[1]+(b[1]-a[1])*t; }
-    }
-    return CTRL[CTRL.length-1][1];
+  /* same elevation model + real GIS data the 3D studies use */
+  var DEM = null, FLAG = null;
+  function demSample(cx,cz){
+    cx = Math.max(0, Math.min(DEM.nx-1, cx));
+    cz = Math.max(0, Math.min(DEM.nz-1, cz));
+    return DEM.e[cz][cx];
   }
-  function g2(x,z,cx,cz,s){ var dx=x-cx,dz=z-cz; return Math.exp(-(dx*dx+dz*dz)/(2*s*s)); }
+  function catmullRom(p0,p1,p2,p3,t){
+    var t2=t*t, t3=t2*t;
+    return 0.5*((2*p1) + (-p0+p2)*t + (2*p0-5*p1+4*p2-p3)*t2 + (-p0+3*p1-3*p2+p3)*t3);
+  }
   function elevAbs(x,z){
-    var e=344+baseElev(z), f=Math.max(0,Math.min(1,z/240));
-    e+=2.1*Math.sin((x+40)/48)*f;
-    e+=2.5*Math.max(-1,Math.min(1,x/130))*(0.35+0.65*f);
-    e+=2.6*g2(x,z,48,158,52);
-    e-=2.0*g2(x,z,-58,192,55);
-    e-=7.0*g2(x,z,-175,-25,75);
-    return e;
+    var gx=(x-DEM.x0)/DEM.dx, gz=(z-DEM.z0)/DEM.dz;
+    var ix=Math.floor(gx), iz=Math.floor(gz), tx=gx-ix, tz=gz-iz;
+    var rows=[];
+    for (var j=-1;j<=2;j++){
+      rows.push(catmullRom(demSample(ix-1,iz+j),demSample(ix,iz+j),demSample(ix+1,iz+j),demSample(ix+2,iz+j),tx));
+    }
+    return catmullRom(rows[0],rows[1],rows[2],rows[3],tz);
+  }
+  function ringMinMax(ring){
+    var lo=Infinity,hi=-Infinity;
+    for(var i=0;i<ring.length;i++){ var e=elevAbs(ring[i][0],ring[i][1]); if(e<lo)lo=e; if(e>hi)hi=e; }
+    return [lo,hi];
   }
 
-  var VX0=-150, VX1=110, VZ0=-40, VZ1=270;   /* view window in local feet */
+  var fetched = await Promise.all([fetch('data/dem_grid.json'), fetch('data/site_vectors.json')]);
+  var jsons = await Promise.all(fetched.map(function(r){ return r.json(); }));
+  DEM = jsons[0];
+  FLAG = jsons[1].taxlots.flag;
+
+  var mm = ringMinMax(FLAG);
+  document.getElementById('hero-rise').textContent =
+    'rises ~' + Math.round(mm[1]-mm[0]) + ' ft across the flag body';
+
+  var VX0=-115, VX1=115, VZ0=-45, VZ1=285;   /* view window in local feet, framing the real flag lot */
+  var RAMP_LO=330, RAMP_HI=390;
+  (function(){
+    var lo=Infinity, hi=-Infinity;
+    for(var j=0;j<24;j++){ for(var i=0;i<24;i++){
+      var e=elevAbs(VX0+i/23*(VX1-VX0), VZ0+j/23*(VZ1-VZ0));
+      if(e<lo)lo=e; if(e>hi)hi=e;
+    }}
+    RAMP_LO=Math.floor(lo/10)*10; RAMP_HI=Math.ceil(hi/10)*10;
+  })();
 
   function draw(){
     var w = cv.clientWidth, h = cv.clientHeight, dpr = Math.min(devicePixelRatio||1, 2);
@@ -226,7 +258,7 @@
         var z = VZ0 + px/w*(VZ1-VZ0);
         var x = VX0 + (1-py/h)*(VX1-VX0);
         var e = elevAbs(x,z);
-        var t = Math.max(0, Math.min(1, (e-338)/44));
+        var t = Math.max(0, Math.min(1, (e-RAMP_LO)/(RAMP_HI-RAMP_LO)));
         var l = 20 + t*16;
         ctx.fillStyle = 'hsl(140,17%,'+l+'%)';
         ctx.fillRect(px,py,step,step);
@@ -252,13 +284,12 @@
     contour(2,  'rgba(233,238,228,0.17)', 1);
     contour(10, 'rgba(176,113,58,0.85)',  1.6);
 
-    /* parcel outline: pole + flag body */
-    var pts=[[-67,0],[-43,0],[-43,95],[85,95],[85,245],[-90,245],[-90,95],[-67,95]];
+    /* parcel outline: real PortlandMaps flag-lot taxlot */
     ctx.strokeStyle='rgba(247,244,236,0.95)'; ctx.lineWidth=2; ctx.setLineDash([7,5]);
     ctx.beginPath();
-    for(var k=0;k<pts.length;k++){
+    for(var k=0;k<FLAG.length;k++){
       var fn = k? 'lineTo':'moveTo';
-      ctx[fn](sx(pts[k][1]), sy(pts[k][0]));
+      ctx[fn](sx(FLAG[k][1]), sy(FLAG[k][0]));
     }
     ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
   }
